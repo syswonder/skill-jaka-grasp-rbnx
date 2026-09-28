@@ -1,0 +1,21 @@
+# Locate a named object with the wrist/overhead camera and grasp it.
+#
+# Perception path: resolve robonix/primitive/camera/rgb via atlas -> grab one
+# undistorted frame -> VLM open-vocabulary detection returns a pixel bbox ->
+# 2D hand-eye homography maps the bbox centre to arm base_link XY -> the grasp
+# is executed at [x, y, desktop_height] with the configured vertical-down RPY,
+# reusing the same grasp segment as `grab`.
+#
+# Request carries the target: the LLM passes what the user asked for
+# ("the red block" / "螺丝刀"), forwarded verbatim to the VLM locator.
+string object
+---
+# Whether the pick completed (descended, closed, lifted back to hover).
+bool success
+
+# Human-readable status. On failure, names the failing stage
+# (preflight / detect / geometry / approach / descend / pick/close / lift).
+string message
+
+# How long the whole call took (s).
+float32 elapsed_s

@@ -1,0 +1,20 @@
+# robonix/skill/jaka/release — open the gripper WHERE THE ARM IS.
+#
+# User-invocable atomic intent: "release / let go / 松开 / 放下". ZERO arm
+# motion: the gripper opening is published alone on jaka_arm's joint_command
+# contract and the provider back-fills the six arm joints from its own live
+# feedback, so the arm holds its current pose by construction.
+#
+# The TG-9801's RS485 position reads are invalid on this arm, so opening is
+# NOT software-verifiable — a fixed settle wait is used and the response
+# message says "command sent", never "verified open".
+#
+# Synchronous. Request has NO fields — the tool takes no arguments ({}).
+[contract]
+id      = "robonix/skill/jaka/release"
+version = "1"
+kind    = "skill"
+idl     = "jaka/srv/Release.srv"
+
+[mode]
+type = "rpc"

@@ -1,0 +1,16 @@
+# Grab whatever sits between the gripper fingers at the configured grasp
+# pose. No perception: hover/grasp poses come from the deploy manifest's
+# skill config block ([x, y, z, rx, ry, rz], metres + radians, base frame).
+#
+# Request has no fields — the tool takes no arguments ({}).
+---
+# Whether the flow completed (every waypoint converged or a non-fatal
+# lift failure was reported in `message`).
+bool success
+
+# Human-readable status. On failure, names the failing stage
+# (preflight / grab/open / approach / descend / grab/close / lift).
+string message
+
+# How long the whole call took (s).
+float32 elapsed_s

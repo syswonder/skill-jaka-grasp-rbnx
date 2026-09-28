@@ -1,0 +1,19 @@
+# robonix/skill/jaka/grab — descend onto the configured grasp pose, close the
+# gripper, lift back to the configured hover pose.
+#
+# User-invocable atomic intent: "grab / 抓". NO camera, NO object detection —
+# the hover and grasp poses come from the deploy manifest's `skill: - name:
+# jaka` config block. Motion goes through the jaka_arm primitive's
+# pos_command / joint_command contracts; topic names and QoS are resolved via
+# atlas, nothing is hard-coded.
+#
+# Synchronous: blocks until every waypoint converges or a timeout fires.
+# Request has NO fields — the tool takes no arguments ({}).
+[contract]
+id      = "robonix/skill/jaka/grab"
+version = "1"
+kind    = "skill"
+idl     = "jaka/srv/Grab.srv"
+
+[mode]
+type = "rpc"

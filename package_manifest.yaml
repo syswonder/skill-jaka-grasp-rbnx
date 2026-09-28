@@ -1,0 +1,28 @@
+manifestVersion: 1
+
+build: bash scripts/build.sh
+
+start: bash scripts/start.sh
+
+package:
+  name: "robonix.skill.jaka"
+  version: 0.1.0
+  description: "JAKA Mini grab/release + camera-driven pick skill."
+  tags:
+    - skill
+    - jaka
+    - manipulation
+    - grasp
+  maintainers:
+    - Felix <xi.lifeng@qq.com>
+  license: Apache-2.0
+
+capabilities:
+  - name: robonix/skill/jaka/grab
+    path: capabilities/grab.v1.toml
+  - name: robonix/skill/jaka/release
+    path: capabilities/release.v1.toml
+  - name: robonix/skill/jaka/pick
+    path: capabilities/pick.v1.toml
+
+depends: []

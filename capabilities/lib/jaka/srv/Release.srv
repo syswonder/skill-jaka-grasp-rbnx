@@ -1,0 +1,15 @@
+# Open the gripper in place — zero arm motion. Because the TG-9801 RS485
+# position reads are invalid on this arm, the response never claims the
+# opening was verified; observe the fingers.
+#
+# Request has no fields — the tool takes no arguments ({}).
+---
+# Whether the release command was issued.
+bool success
+
+# Human-readable status. On failure, names the failing stage
+# (preflight / release/open).
+string message
+
+# How long the whole call took (s).
+float32 elapsed_s

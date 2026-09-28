@@ -1,0 +1,24 @@
+# robonix/skill/jaka/pick — locate a named object with the camera and grasp it.
+#
+# User-invocable atomic intent: "pick up the X / 抓起 X". UNLIKE grab, the
+# grasp XY is computed from perception, not the deploy config: resolve
+# robonix/primitive/camera/rgb via atlas, grab a frame, VLM open-vocabulary
+# detection -> pixel bbox, 2D hand-eye homography -> arm base_link XY, grasp z
+# from configured desktop_height with a fixed vertical-down RPY. The grasp
+# segment (open -> hover -> descend -> close -> lift) is shared with grab.
+#
+# Requires a calibrated homography_matrix (+ camera intrinsics) and a VLM
+# endpoint in the deploy config; without them every call returns a clear
+# config error (see config.spec). Motion still obeys jaka_arm's motion_enabled
+# gate. Synchronous: blocks until the grasp completes or a stage fails.
+#
+# Request has ONE field: `object` — the target description, forwarded to the
+# VLM locator verbatim.
+[contract]
+id      = "robonix/skill/jaka/pick"
+version = "1"
+kind    = "skill"
+idl     = "jaka/srv/Pick.srv"
+
+[mode]
+type = "rpc"
