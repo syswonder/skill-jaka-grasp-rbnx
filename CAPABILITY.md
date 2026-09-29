@@ -1,11 +1,11 @@
 ---
-description: JAKA Mini grab/release/pick skill. grab closes the gripper at the configured grasp pose and lifts to hover; release opens the gripper in place with zero arm motion; pick locates a named object with the camera (yolo11-obb or VLM backend) and grasps it via a calibrated 2D hand-eye homography; the yolo path also aligns gripper yaw to the object's long edge. grab/release need no perception; pick needs a calibrated homography + a detector (yolo weights or VLM endpoint).
+description: JAKA Mini grab/release/pick skill (demo branch: + egg). grab closes the gripper at the configured grasp pose and lifts to hover; release opens the gripper in place with zero arm motion; egg picks an egg up at the fixed configured egg_grasp_pose and sets it down at the fixed configured egg_place_pose; pick locates a named object with the camera (yolo11-obb or VLM backend) and grasps it via a calibrated 2D hand-eye homography; the yolo path also aligns gripper yaw to the object's long edge. grab/release need no perception; egg needs its two poses calibrated; pick needs a calibrated homography + a detector (yolo weights or VLM endpoint).
 ---
 
-# JAKA grab/release/pick skill
+# JAKA grab/release/pick skill — demo branch (adds `egg`)
 
 Provider id `jaka`, namespace `robonix/skill/jaka`. LLM tool names:
-`jaka_grab` / `jaka_release` / `jaka_pick`. The skill owns no hardware: arm
+`jaka_grab` / `jaka_release` / `jaka_egg` / `jaka_pick`. The skill owns no hardware: arm
 motion goes through the `jaka_arm` primitive's `pos_command` / `joint_command`
 contracts and the camera through `orbbec_camera`'s `camera/rgb`, all resolved
 by topic name via atlas — nothing is hard-coded.
@@ -26,10 +26,14 @@ by topic name via atlas — nothing is hard-coded.
 |---|---|---|
 | `robonix/skill/jaka/grab` | `jaka_grab` | Open gripper in place → move to hover → descend to grasp → close gripper → settle → lift back to hover and hold. A failed lift is non-fatal (the object is already in the fingers). Poses from config; takes no arguments. |
 | `robonix/skill/jaka/release` | `jaka_release` | Open the gripper where the arm is — zero arm motion by construction (only `gripper_joint` is commanded; the provider back-fills the arm joints from its live feedback). Takes no arguments. |
+| `robonix/skill/jaka/egg` | `jaka_egg` | Fixed-pose egg pick-and-place (demo): grasp half reuses grab's segment at the configured `egg_grasp_pose`, then hover → descend → open → lift at the configured `egg_place_pose`. Both poses are fixed config values; hovers are z + `travel_offset`. Takes no arguments. |
 | `robonix/skill/jaka/pick` | `jaka_pick` | Locate the named `object` with the camera (yolo11-obb or VLM backend, `detect_scheme`), map the bbox centre to arm base_link XY via the calibrated 2D homography, then run the same grasp segment as grab at `(x, y, desktop_height)` — on the yolo path with the gripper yaw aligned to the object's long edge. Takes one argument: `object` (the target description). |
 
-All tools are synchronous (block until done). `grab` / `release` take no
-arguments; `pick` takes `object`.
+All tools are synchronous (block until done). `grab` / `release` / `egg`
+take no arguments; `pick` takes `object`. `egg` reports "unavailable"
+until both `egg_grasp_pose` and `egg_place_pose` are calibrated in the
+deploy config (same model as `pick`'s calibration gate — the other tools
+are unaffected).
 
 ## pick — perception path and calibration
 

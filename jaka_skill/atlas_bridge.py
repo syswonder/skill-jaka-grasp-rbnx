@@ -29,8 +29,9 @@ from typing import Any, Optional
 
 from robonix_api import ATLAS, Err, Ok, Skill
 
-from jaka_mcp import (Grab_Request, Grab_Response, Pick_Request,
-                      Pick_Response, Release_Request, Release_Response)
+from jaka_mcp import (Egg_Request, Egg_Response, Grab_Request, Grab_Response,
+                      Pick_Request, Pick_Response, Release_Request,
+                      Release_Response)
 
 from .camera import CameraFrames
 from .config import SkillConfig
@@ -326,6 +327,37 @@ def _run_release(arm: Arm, cfg: SkillConfig) -> str:
     return arm.settle_gripper(expect_open=True, stage="release/open")
 
 
+def _run_egg(arm: Arm, cfg: SkillConfig) -> str:
+    """Fixed-pose egg pick-and-place. The grasp half reuses the grab
+    segment (open -> hover -> descend -> close -> settle -> lift[non-fatal]
+    ) at the configured egg_grasp_pose; the place half is hover above
+    egg_place_pose -> descend -> open -> settle -> lift (non-fatal — the
+    egg is already down). Both hovers are z + travel_offset (pick's height
+    model). A failed post-grasp lift is carried in the message, not fatal:
+    the egg is in the fingers and the next waypoint is reachable from
+    wherever the arm is."""
+    arm.wait_feedback_ready("preflight", cfg.feedback_timeout_s)
+    g_xyz, g_rpy = cfg.egg_grasp_pose[:3], cfg.egg_grasp_pose[3:]
+    g_hover = [g_xyz[0], g_xyz[1], g_xyz[2] + cfg.travel_offset, *g_rpy]
+    grasp_msg = _grasp_segment(arm, cfg, g_hover, cfg.egg_grasp_pose)
+    p_xyz, p_rpy = cfg.egg_place_pose[:3], cfg.egg_place_pose[3:]
+    p_hover = [p_xyz[0], p_xyz[1], p_xyz[2] + cfg.travel_offset, *p_rpy]
+    arm.move_pose(p_hover[:3], p_rpy, stage="egg/approach",
+                  timeout_s=cfg.pose_timeout_s)
+    arm.move_pose(p_xyz, p_rpy, stage="egg/descend",
+                  timeout_s=cfg.pose_timeout_s)
+    arm.set_gripper(cfg.gripper_open_m, stage="egg/open")
+    arm.settle_gripper(expect_open=True, stage="egg/open")
+    try:
+        arm.move_pose(p_hover[:3], p_rpy, stage="egg/lift",
+                      timeout_s=cfg.pose_timeout_s)
+    except MotionError as exc:
+        # The egg is already on the table: a failed lift is a warning.
+        return (f"{grasp_msg}; placed (arm stayed at the place pose); "
+                f"lift failed: {exc}")
+    return f"{grasp_msg}; placed and lifted back to hover"
+
+
 # ── MCP tools ───────────────────────────────────────────────────────────────
 
 @jaka_skill.mcp("robonix/skill/jaka/grab")
@@ -366,6 +398,34 @@ def release(_req: Release_Request) -> Release_Response:
         raise RuntimeError(f"release failed: {exc}") from exc
     return Release_Response(success=True, message=message,
                             elapsed_s=time.monotonic() - t0)
+
+
+@jaka_skill.mcp("robonix/skill/jaka/egg")
+def egg(_req: Egg_Request) -> Egg_Response:
+    """Pick an egg up from the fixed configured pickup position and set it
+    down at the fixed configured place position. Use this when the user
+    says "抓鸡蛋 / 拾蛋 / egg" and both positions are the pre-calibrated
+    fixed ones — no perception and no arguments. The flow: open gripper ->
+    hover over the egg -> descend -> grip -> lift -> hover over the place
+    position -> descend -> open -> lift. Grip force comes from jaka_arm's
+    `gripper_force` config (applied once at connect) — it must be LOW for
+    eggs. Blocks until done. Takes no arguments.
+    """
+    cfg = _require_active()
+    if cfg.egg_error:
+        raise RuntimeError(
+            f"egg unavailable: {cfg.egg_error} — set both poses ([x, y, z, "
+            f"rx, ry, rz], metres + radians, same frame/units as "
+            f"hover_pose) in the deploy manifest's `skill: - name: jaka` "
+            f"config block")
+    arm = _arm
+    t0 = time.monotonic()
+    try:
+        message = _run_egg(arm, cfg)
+    except MotionError as exc:
+        raise RuntimeError(f"egg failed: {exc}") from exc
+    return Egg_Response(success=True, message=message,
+                        elapsed_s=time.monotonic() - t0)
 
 
 @jaka_skill.mcp("robonix/skill/jaka/pick")
