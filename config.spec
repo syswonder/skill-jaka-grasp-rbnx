@@ -67,6 +67,41 @@ config:
   # override here wins and skips atlas resolution for that topic.
   # topics: { joint_states: /jaka/joint_states }
 
+  # ─────────────────────── home (复位) ───────────────────────────────
+  # Only the `home` tool uses the keys below. The move is JOINT-space, so
+  # it works from any arm posture with no IK/reach/singularity concerns;
+  # the gripper is never commanded (anything held stays held).
+
+  # list of 6 floats, radians, default: [0, 0, 0, 0, 0, 0]. Joint target
+  # of the home move. All-zeros is the JAKA reference posture (arm
+  # upright); override per-deploy if a different parked posture is wanted.
+  # Values must sit inside the controller's joint limits — the provider
+  # rejects the move otherwise (skill-side symptom: home/move timeout).
+  # home_joints: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+  # float, radians, default: 0.02 (~1.1 deg). Max per-joint error for the
+  # home move to count as reached (mirrors the provider's ~1 deg reach
+  # check). The wait itself reuses pose_timeout_s.
+  joint_reach_tolerance_rad: 0.02
+
+  # ─────────────────────── place (放置) ────────────────────────────────
+  # Only the `place` tool uses the key below. The flow is grab's mirror:
+  # hover above the place pose -> descend -> open the gripper -> lift;
+  # the gripper keeps holding until the bottom.
+  #
+  # DEFAULT (key unset): place in place (原地放下) — the object is set down
+  # right below where the arm holds it: current XY from end_pose at
+  # desktop_height, orientation grasp_rpy. No calibration needed beyond
+  # what pick already requires (desktop_height).
+
+  # list of 6 floats, OPTIONAL, default: unset (in-place place). [x, y, z,
+  # rx, ry, rz] — metres + RADIANS, same frame/units as hover_pose/
+  # grasp_pose: carry the held object to this pose and set it down there.
+  # Hover is derived as z + travel_offset (the pick height model — mind
+  # travel_offset's reach note: on this arm the hover must stay inside the
+  # reachable envelope at that radial).
+  # place_pose: [0.20, 0.10, 0.125, 3.14159265, 0.0, 0.0]
+
   # ─────────────────────── pick (perception) ───────────────────────────
   # Only the `pick` tool uses the keys below. grab/release need NONE of
   # them — if pick is left uncalibrated, grab/release still work; `pick`

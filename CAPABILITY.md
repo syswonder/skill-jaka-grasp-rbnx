@@ -1,11 +1,11 @@
 ---
-description: JAKA Mini grab/release/pick skill. grab closes the gripper at the configured grasp pose and lifts to hover; release opens the gripper in place with zero arm motion; pick locates a named object with the camera (yolo11-obb or VLM backend) and grasps it via a calibrated 2D hand-eye homography; the yolo path also aligns gripper yaw to the object's long edge. grab/release need no perception; pick needs a calibrated homography + a detector (yolo weights or VLM endpoint).
+description: JAKA Mini grab/release/home/place/pick skill. grab closes the gripper at the configured grasp pose and lifts to hover; release opens the gripper in place with zero arm motion; home returns the six arm joints to the configured home target (default all-zeros) without touching the gripper; place sets a held object down — by default in place, right below where the arm holds it (hover, descend, open, lift), or at a configured place pose when one is calibrated; pick locates a named object with the camera (yolo11-obb or VLM backend) and grasps it via a calibrated 2D hand-eye homography; the yolo path also aligns gripper yaw to the object's long edge. grab/release/home need no perception and work out of the box; place in-place needs only desktop_height; pick needs a calibrated homography + a detector (yolo weights or VLM endpoint).
 ---
 
-# JAKA grab/release/pick skill
+# JAKA grab/release/home/place/pick skill
 
 Provider id `jaka`, namespace `robonix/skill/jaka`. LLM tool names:
-`jaka_grab` / `jaka_release` / `jaka_pick`. The skill owns no hardware: arm
+`jaka_grab` / `jaka_release` / `jaka_home` / `jaka_place` / `jaka_pick`. The skill owns no hardware: arm
 motion goes through the `jaka_arm` primitive's `pos_command` / `joint_command`
 contracts and the camera through `orbbec_camera`'s `camera/rgb`, all resolved
 by topic name via atlas — nothing is hard-coded.
@@ -26,10 +26,14 @@ by topic name via atlas — nothing is hard-coded.
 |---|---|---|
 | `robonix/skill/jaka/grab` | `jaka_grab` | Open gripper in place → move to hover → descend to grasp → close gripper → settle → lift back to hover and hold. A failed lift is non-fatal (the object is already in the fingers). Poses from config; takes no arguments. |
 | `robonix/skill/jaka/release` | `jaka_release` | Open the gripper where the arm is — zero arm motion by construction (only `gripper_joint` is commanded; the provider back-fills the arm joints from its live feedback). Takes no arguments. |
+| `robonix/skill/jaka/home` | `jaka_home` | Return the arm to its initial posture — a joint-space move of the six arm joints to the configured `home_joints` (default all-zeros, the JAKA reference posture) via `joint_command`. The gripper is NOT commanded, so anything held stays held. Takes no arguments. |
+| `robonix/skill/jaka/place` | `jaka_place` | Set a held object down — by default IN PLACE (原地放下): the arm's current XY at `desktop_height` with `grasp_rpy`; at the configured `place_pose` instead when one is calibrated. Hover above the target (z + `travel_offset`), descend, open the gripper, lift back to hover. The gripper keeps holding until the bottom (unlike `release`, which lets go mid-air where the arm is). Takes no arguments. |
 | `robonix/skill/jaka/pick` | `jaka_pick` | Locate the named `object` with the camera (yolo11-obb or VLM backend, `detect_scheme`), map the bbox centre to arm base_link XY via the calibrated 2D homography, then run the same grasp segment as grab at `(x, y, desktop_height)` — on the yolo path with the gripper yaw aligned to the object's long edge. Takes one argument: `object` (the target description). |
 
-All tools are synchronous (block until done). `grab` / `release` take no
-arguments; `pick` takes `object`.
+All tools are synchronous (block until done). `grab` / `release` / `home` /
+`place` take no arguments; `pick` takes `object`. `place` works
+uncalibrated (in place, `desktop_height`); setting a `place_pose` in the
+deploy config switches it to that pose.
 
 ## pick — perception path and calibration
 
@@ -77,6 +81,11 @@ the `yolo_model_path` weights file) until set in the deploy config.
   (only a rate-limited provider log line) — `release` would report success
   without the gripper moving. Pose waypoints time out with an explicit
   `motion_enabled` hint; gripper commands cannot be checked this way.
+- **`home` sweeps through the workspace.** It is a joint-space move: each
+  joint interpolates independently toward `home_joints`, so the arm passes
+  through whatever lies between its current pose and home. The gripper
+  keeps its state (a held object travels with the arm) — clear the path
+  before homing.
 - Near the j5 singularity the provider's `pos_command` falls back to a
   joint-space IK move, so a "straight vertical" descent is not guaranteed
   on that path — keep the configured RPY constant and away from j5 limits.

@@ -1,0 +1,20 @@
+# robonix/skill/jaka/home — return the arm to its initial (home) posture.
+#
+# User-invocable atomic intent: "home / reset / 复位 / 回零 / 回到初始位置".
+# A JOINT-SPACE move of the six arm joints to the configured `home_joints`
+# target (default all-zeros — the JAKA reference posture) via jaka_arm's
+# joint_command contract. Deliberately not a Cartesian target: no IK, no
+# reach or singularity concerns, the provider only checks joint limits.
+# The gripper is NOT commanded (publishing the six arm joints alone leaves
+# it untouched), so anything held stays held — `release` first to let go.
+#
+# Synchronous: blocks until every joint converges or a timeout fires.
+# Request has NO fields — the tool takes no arguments ({}).
+[contract]
+id      = "robonix/skill/jaka/home"
+version = "1"
+kind    = "skill"
+idl     = "jaka/srv/Home.srv"
+
+[mode]
+type = "rpc"

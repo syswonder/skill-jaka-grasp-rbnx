@@ -29,8 +29,10 @@ from typing import Any, Optional
 
 from robonix_api import ATLAS, Err, Ok, Skill
 
-from jaka_mcp import (Grab_Request, Grab_Response, Pick_Request,
-                      Pick_Response, Release_Request, Release_Response)
+from jaka_mcp import (Grab_Request, Grab_Response, Home_Request,
+                      Home_Response, Pick_Request, Pick_Response,
+                      Place_Request, Place_Response, Release_Request,
+                      Release_Response)
 
 from .camera import CameraFrames
 from .config import SkillConfig
@@ -326,6 +328,57 @@ def _run_release(arm: Arm, cfg: SkillConfig) -> str:
     return arm.settle_gripper(expect_open=True, stage="release/open")
 
 
+def _run_home(arm: Arm, cfg: SkillConfig) -> str:
+    """Joint-space move to the configured `home_joints` (default all-zeros,
+    the JAKA reference posture). The gripper is NOT commanded."""
+    arm.wait_feedback_ready("preflight", cfg.feedback_timeout_s)
+    err = arm.move_joints(cfg.home_joints, stage="home/move",
+                          timeout_s=cfg.pose_timeout_s)
+    return (f"homed: all six joints at target (worst residual "
+            f"{math.degrees(err):.2f} deg); gripper untouched")
+
+
+def _run_place(arm: Arm, cfg: SkillConfig) -> str:
+    """Set the held object down — at the configured `place_pose` when one is
+    calibrated, otherwise IN PLACE (原地放下): the arm's current XY at the
+    calibrated desktop_height, with grasp_rpy. Either way the mirror of the
+    grab segment: hover above the target (z + travel_offset), descend, open
+    the gripper, lift back to hover. The gripper keeps holding until the
+    bottom (NO open-before-approach here). A failed lift is non-fatal: the
+    object is already released."""
+    arm.wait_feedback_ready("preflight", cfg.feedback_timeout_s)
+    if cfg.place_pose is not None:
+        xyz, rpy = cfg.place_pose[:3], cfg.place_pose[3:]
+    else:
+        # In-place default: the current XY over the table, grasp
+        # orientation. wait_feedback_ready just proved a fresh end_pose
+        # sample exists, so the read cannot be stale.
+        now, _ = arm.end_pose_now()
+        if now is None:
+            raise MotionError("place failed: no end_pose feedback to "
+                              "derive the in-place target from")
+        xyz = [now[0], now[1], cfg.desktop_height]
+        rpy = list(cfg.grasp_rpy)
+        log.info("place_pose unset — placing in place: xy (%.3f, %.3f) "
+                 "from end_pose, z %.3f (desktop_height)", now[0], now[1],
+                 cfg.desktop_height)
+    hover_xyz = [xyz[0], xyz[1], xyz[2] + cfg.travel_offset]
+    arm.move_pose(hover_xyz, rpy, stage="place/approach",
+                  timeout_s=cfg.pose_timeout_s)
+    arm.move_pose(xyz, rpy, stage="place/descend",
+                  timeout_s=cfg.pose_timeout_s)
+    arm.set_gripper(cfg.gripper_open_m, stage="place/open")
+    arm.settle_gripper(expect_open=True, stage="place/open")
+    try:
+        arm.move_pose(hover_xyz, rpy, stage="place/lift",
+                      timeout_s=cfg.pose_timeout_s)
+    except MotionError as exc:
+        # The object is already on the table: a failed lift is a warning,
+        # not a failure (the arm stays at the place pose, empty).
+        return f"placed (arm stayed at the place pose); lift failed: {exc}"
+    return "placed and lifted back to hover"
+
+
 # ── MCP tools ───────────────────────────────────────────────────────────────
 
 @jaka_skill.mcp("robonix/skill/jaka/grab")
@@ -352,10 +405,12 @@ def grab(_req: Grab_Request) -> Grab_Response:
 @jaka_skill.mcp("robonix/skill/jaka/release")
 def release(_req: Release_Request) -> Release_Response:
     """Open the gripper WHERE THE ARM IS — zero arm motion. Use this when
-    the user says "release / let go / 松开 / 放下" and the arm must not
-    move. Because the gripper's RS485 position reads are broken on this
-    arm, the opening is NOT verifiable by software — observe the fingers.
-    Blocks until the settle wait completes. Takes no arguments.
+    the user says "release / let go here / 松开 / 松手" and the arm must
+    stay put (for setting the object down at the configured place pose,
+    use `place` instead). Because the gripper's RS485 position reads are
+    broken on this arm, the opening is NOT verifiable by software —
+    observe the fingers. Blocks until the settle wait completes. Takes no
+    arguments.
     """
     cfg = _require_active()
     arm = _arm
@@ -366,6 +421,52 @@ def release(_req: Release_Request) -> Release_Response:
         raise RuntimeError(f"release failed: {exc}") from exc
     return Release_Response(success=True, message=message,
                             elapsed_s=time.monotonic() - t0)
+
+
+@jaka_skill.mcp("robonix/skill/jaka/home")
+def home(_req: Home_Request) -> Home_Response:
+    """Return the arm to its home (initial) posture. Use this when the user
+    says "home / reset / 复位 / 回零 / 回到初始位置" and the arm should go
+    back to a known safe reference. Moves the six arm JOINTS to the
+    configured `home_joints` target (default all-zeros, the JAKA reference
+    posture) — a joint-space move, so no IK, reach or singularity concerns;
+    the provider checks joint limits. The gripper is NOT touched: anything
+    held stays held (call `release` first to let go). Blocks until every
+    joint converges. Takes no arguments.
+    """
+    cfg = _require_active()
+    arm = _arm
+    t0 = time.monotonic()
+    try:
+        message = _run_home(arm, cfg)
+    except MotionError as exc:
+        raise RuntimeError(f"home failed: {exc}") from exc
+    return Home_Response(success=True, message=message,
+                         elapsed_s=time.monotonic() - t0)
+
+
+@jaka_skill.mcp("robonix/skill/jaka/place")
+def place(_req: Place_Request) -> Place_Response:
+    """Set the held object down. Use this when the user says "place it /
+    put it down / 放下 / 放置" and the arm is holding something. WHERE is
+    config-driven: by default, with no `place_pose` calibrated, the object
+    is set down IN PLACE (原地放下) — right below where the arm holds it
+    (current XY at the calibrated table height); when a `place_pose` is
+    configured, the object is carried there instead. Either way: hover
+    above the target, descend, open the gripper, then lift back to hover
+    empty; the gripper keeps holding all the way down — unlike `release`,
+    which just lets go where the arm currently is, mid-air. Blocks until
+    done. Takes no arguments.
+    """
+    cfg = _require_active()
+    arm = _arm
+    t0 = time.monotonic()
+    try:
+        message = _run_place(arm, cfg)
+    except MotionError as exc:
+        raise RuntimeError(f"place failed: {exc}") from exc
+    return Place_Response(success=True, message=message,
+                          elapsed_s=time.monotonic() - t0)
 
 
 @jaka_skill.mcp("robonix/skill/jaka/pick")

@@ -1,0 +1,16 @@
+# Return the arm to its home posture: a joint-space move of the six arm
+# joints to the configured `home_joints` target (default all-zeros, the JAKA
+# reference posture). The gripper is NOT commanded — anything held stays
+# held (use `release` first to let go).
+#
+# Request has no fields — the tool takes no arguments ({}).
+---
+# Whether the arm reached the home posture (every joint within tolerance).
+bool success
+
+# Human-readable status. On failure, names the failing stage
+# (preflight / home/move).
+string message
+
+# How long the whole call took (s).
+float32 elapsed_s

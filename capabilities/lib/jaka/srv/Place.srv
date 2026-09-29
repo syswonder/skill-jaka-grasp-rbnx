@@ -1,0 +1,18 @@
+# Place the held object down: at the configured place pose when one is
+# calibrated, otherwise in place (current XY at desktop_height). Either
+# way: hover above the target, descend, open the gripper, lift back to
+# hover. The mirror of grab — the gripper keeps holding until the bottom,
+# unlike release which lets go where the arm is.
+#
+# Request has no fields — the tool takes no arguments ({}).
+---
+# Whether the flow completed (every waypoint converged or a non-fatal
+# lift failure was reported in `message`).
+bool success
+
+# Human-readable status. On failure, names the failing stage
+# (preflight / place/approach / place/descend / place/open / place/lift).
+string message
+
+# How long the whole call took (s).
+float32 elapsed_s

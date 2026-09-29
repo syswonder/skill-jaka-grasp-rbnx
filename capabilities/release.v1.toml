@@ -1,6 +1,7 @@
 # robonix/skill/jaka/release — open the gripper WHERE THE ARM IS.
 #
-# User-invocable atomic intent: "release / let go / 松开 / 放下". ZERO arm
+# User-invocable atomic intent: "release / let go here / 松开 / 松手" (for
+# 放下/放置 at a configured location, use `place`). ZERO arm
 # motion: the gripper opening is published alone on jaka_arm's joint_command
 # contract and the provider back-fills the six arm joints from its own live
 # feedback, so the arm holds its current pose by construction.

@@ -316,6 +316,56 @@ class Arm:
             f"in the deploy manifest's jaka_arm config (rejections are "
             f"logged there as 'motion command rejected').")
 
+    def move_joints(self, target_rad, *, stage: str, timeout_s: float) -> float:
+        """Publish a joint-space target (the six arm joints alone) on
+        joint_command and wait for joint_states to converge on it. The
+        message carries no `gripper_joint`, so the provider leaves the
+        gripper untouched. Returns the final worst per-joint error (rad);
+        raises MotionError on timeout."""
+        pub = self._pub_joint_command
+        node = self._node
+        if pub is None or node is None:
+            raise MotionError(
+                f"{stage} failed: joint_command publisher not ready "
+                f"(ROS bridge down or topic unresolved)")
+        target = [float(v) for v in target_rad]
+        if self.arm_joints_fresh(self.cfg.feedback_timeout_s) is None:
+            raise MotionError(
+                f"{stage} failed: no fresh arm joint feedback on "
+                f"{self._t_joint_states[0] if self._t_joint_states else '?'} "
+                f"within {self.cfg.feedback_timeout_s:.1f}s — refusing to "
+                f"command the arm blind")
+        msg = JointState()
+        msg.header.stamp = node.get_clock().now().to_msg()
+        msg.name = list(JOINT_NAMES)
+        msg.position = target
+        t_pub = time.monotonic()
+        pub.publish(msg)
+
+        deadline = t_pub + timeout_s
+        last = None
+        last_e = float("inf")
+        while time.monotonic() < deadline:
+            joints, seen = self.arm_joints_now()
+            # FRESH-ONLY: ignore samples that predate the publish (same
+            # rationale as move_pose).
+            if joints is not None and seen is not None and seen >= t_pub:
+                last = joints
+                last_e = max(abs(c - t) for c, t in zip(joints, target,
+                                                        strict=True))
+                if last_e <= self.cfg.joint_reach_tolerance_rad:
+                    return last_e
+            time.sleep(self.cfg.poll_s)
+        closest = (f"worst joint {math.degrees(last_e):.2f} deg away"
+                   if last is not None else "no fresh sample")
+        raise MotionError(
+            f"{stage} failed: joints did not reach the target within "
+            f"{timeout_s:.1f}s ({closest}). If the arm never moved at all, "
+            f"jaka_arm is silently rejecting motion — check "
+            f"`motion_enabled: true` in the deploy manifest's jaka_arm "
+            f"config (rejections are logged there as 'motion command "
+            f"rejected').")
+
     def set_gripper(self, open_m: float, *, stage: str) -> None:
         """Command the gripper by publishing `gripper_joint` ALONE.
 

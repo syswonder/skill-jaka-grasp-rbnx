@@ -187,6 +187,29 @@ def _pose6(cfg: dict, key: str) -> Optional[list[float]]:
     return vals
 
 
+def _angles6(cfg: dict, key: str, default: list[float]) -> list[float]:
+    """Six joint angles in RADIANS. Falls back to `default` on any
+    malformation."""
+    raw = cfg.get(key)
+    if raw is None:
+        return list(default)
+    if not isinstance(raw, (list, tuple)) or len(raw) != 6:
+        print(f"{LOG_PREFIX} config {key}: expected 6 joint angles "
+              f"(radians); using {default}", flush=True)
+        return list(default)
+    try:
+        vals = [float(v) for v in raw]
+    except (TypeError, ValueError):
+        print(f"{LOG_PREFIX} config {key}: non-numeric; using {default}",
+              flush=True)
+        return list(default)
+    if not all(math.isfinite(v) for v in vals):
+        print(f"{LOG_PREFIX} config {key}: non-finite; using {default}",
+              flush=True)
+        return list(default)
+    return vals
+
+
 @dataclass
 class SkillConfig:
     arm_provider_id: str = "jaka_arm"
@@ -204,6 +227,15 @@ class SkillConfig:
     poll_s: float = 0.05
     min_grasp_descent_m: float = 0.005
     topics: dict = field(default_factory=dict)
+    # ── home (复位): joint-space target + reach check ──
+    home_joints: list[float] = field(default_factory=lambda: [0.0] * 6)
+    joint_reach_tolerance_rad: float = 0.02
+    # ── place (放置): where a held object is set down. Optional — unset
+    # means `place` sets the object down IN PLACE (current XY at
+    # desktop_height, grasp_rpy); set to carry it to a configured pose
+    # instead (NOT a config_error either way: grab/release/home/pick are
+    # unaffected). ──
+    place_pose: Optional[list[float]] = None
     # ── pick (perception) — separate from grab so grab works uncalibrated ──
     camera_provider_id: str = "orbbec_camera"
     camera_topic: str = ""
@@ -287,6 +319,10 @@ class SkillConfig:
             min_grasp_descent_m=_num(cfg, "min_grasp_descent_m", 0.005,
                                      minimum=0.001),
             topics=topics,
+            home_joints=_angles6(cfg, "home_joints", [0.0] * 6),
+            joint_reach_tolerance_rad=_num(
+                cfg, "joint_reach_tolerance_rad", 0.02, minimum=0.001),
+            place_pose=_pose6(cfg, "place_pose"),
             camera_provider_id=_text(cfg, "camera_provider_id",
                                      "orbbec_camera"),
             camera_topic=_text(cfg, "camera_topic", ""),

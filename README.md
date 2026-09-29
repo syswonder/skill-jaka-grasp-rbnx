@@ -1,12 +1,20 @@
-# skill-jaka-rbnx — JAKA Mini grab/release/pick skill
+# skill-jaka-rbnx — JAKA Mini grab/release/home/place/pick skill
 
-Robonix skill for the fixed-base JAKA Mini + TG-9801 gripper. Three
+Robonix skill for the fixed-base JAKA Mini + TG-9801 gripper. Five
 synchronous MCP tools:
 
 - `jaka_grab` — open gripper → hover → descend to the configured grasp pose
   → close gripper → settle → lift back to hover and hold. No perception;
   poses come from the deploy config.
 - `jaka_release` — open the gripper in place, zero arm motion.
+- `jaka_home` — return the arm to its initial posture (复位): a joint-space
+  move of the six arm joints to the configured `home_joints` (default
+  all-zeros, the JAKA reference posture). The gripper is not commanded.
+- `jaka_place` — set a held object down (放置). Default is in place
+  (原地放下): the arm's current XY at `desktop_height` — hover, descend,
+  open the gripper, lift. The gripper keeps holding until the bottom
+  (unlike `release`); calibrate a `place_pose` to carry the object to a
+  configured spot instead.
 - `jaka_pick` — locate a named object with the camera (yolo11-obb or
   open-vocabulary VLM backend, `detect_scheme`) and grasp it: 2D hand-eye
   homography maps the detection to arm base_link XY. Requires on-site
@@ -36,7 +44,7 @@ the first tool call. Static checks after `bash start.sh`:
 
 ```bash
 rbnx caps -v                              # jaka [INACTIVE] until first call
-rbnx tools                                # jaka_grab / jaka_release / jaka_pick listed
+rbnx tools                                # jaka_grab / jaka_release / jaka_home / jaka_place / jaka_pick listed
 rbnx contracts -p robonix/skill/jaka
 rbnx describe --provider jaka
 ```
