@@ -236,6 +236,12 @@ class SkillConfig:
     # instead (NOT a config_error either way: grab/release/home/pick are
     # unaffected). ──
     place_pose: Optional[list[float]] = None
+    # ── fixed_grasp (demo): fixed-pose pick-and-place. Optional like
+    # pick's calibration — unset disables only `fixed_grasp` (checked at
+    # tool-call time, NOT a config_error: grab/release/pick must keep
+    # working). ──
+    fixed_grasp_pose: Optional[list[float]] = None
+    fixed_place_pose: Optional[list[float]] = None
     # ── pick (perception) — separate from grab so grab works uncalibrated ──
     camera_provider_id: str = "orbbec_camera"
     camera_topic: str = ""
@@ -284,6 +290,20 @@ class SkillConfig:
             missing.append("vlm_base_url/vlm_api_key/vlm_model")
         return "; ".join(missing)
 
+    @property
+    def fixed_grasp_error(self) -> str:
+        """Why `fixed_grasp` is unavailable (empty = ready). Same pattern
+        as pick_error: a fixed_grasp-only gap must not block
+        grab/release/pick."""
+        missing = []
+        if self.fixed_grasp_pose is None:
+            missing.append(
+                "fixed_grasp_pose (where the object is picked up)")
+        if self.fixed_place_pose is None:
+            missing.append(
+                "fixed_place_pose (where the object is set down)")
+        return "; ".join(missing)
+
     @classmethod
     def from_cfg(cls, cfg: dict) -> "SkillConfig":
         topics_raw = cfg.get("topics")
@@ -323,6 +343,8 @@ class SkillConfig:
             joint_reach_tolerance_rad=_num(
                 cfg, "joint_reach_tolerance_rad", 0.02, minimum=0.001),
             place_pose=_pose6(cfg, "place_pose"),
+            fixed_grasp_pose=_pose6(cfg, "fixed_grasp_pose"),
+            fixed_place_pose=_pose6(cfg, "fixed_place_pose"),
             camera_provider_id=_text(cfg, "camera_provider_id",
                                      "orbbec_camera"),
             camera_topic=_text(cfg, "camera_topic", ""),

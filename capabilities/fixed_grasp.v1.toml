@@ -1,0 +1,28 @@
+# robonix/skill/jaka/fixed_grasp — fixed-pose pick-and-place (demo).
+#
+# User-invocable atomic intent: "固定抓取". Picks the demo object up at
+# the configured `fixed_grasp_pose` and sets it down at the configured
+# `fixed_place_pose` — both FIXED deploy-config values, no camera, no
+# arguments. The grasp half reuses grab's segment (open -> hover ->
+# descend -> close -> settle -> lift[non-fatal]); the place half is hover
+# -> descend -> open -> settle -> lift (non-fatal).
+#
+# THE DEMO OBJECT IS FRAGILE (a raw egg): grip force is jaka_arm's
+# one-time `gripper_force` config (0-100) — LOWER it on-site and verify
+# on the real object before running this demo. Arm speeds likewise come
+# from jaka_arm (joint_speed_rad_s / linear_speed_mm_s).
+#
+# Both poses must be calibrated in the deploy config; until then
+# `fixed_grasp` reports unavailable (grab/release/pick unaffected).
+# Motion goes through jaka_arm's pos_command / joint_command contracts
+# via atlas.
+#
+# Synchronous. Request has NO fields — the tool takes no arguments ({}).
+[contract]
+id      = "robonix/skill/jaka/fixed_grasp"
+version = "1"
+kind    = "skill"
+idl     = "jaka/srv/FixedGrasp.srv"
+
+[mode]
+type = "rpc"
