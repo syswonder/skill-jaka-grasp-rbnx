@@ -7,9 +7,10 @@ synchronous MCP tools on `main`; this **demo branch** adds a fourth:
   → close gripper → settle → lift back to hover and hold. No perception;
   poses come from the deploy config.
 - `jaka_release` — open the gripper in place, zero arm motion.
-- `jaka_egg` (demo only) — fixed-pose egg pick-and-place: grasp at the
-  calibrated `egg_grasp_pose`, set down at the calibrated `egg_place_pose`.
-  No perception, no arguments; both hovers are z + `travel_offset`.
+- `jaka_fixed_grasp` (demo only) — fixed-pose pick-and-place (固定抓取):
+  grasp at the calibrated `fixed_grasp_pose`, set down at the calibrated
+  `fixed_place_pose`. No perception, no arguments; both hovers are
+  z + `travel_offset`.
 - `jaka_pick` — locate a named object with the camera (yolo11-obb or
   open-vocabulary VLM backend, `detect_scheme`) and grasp it: 2D hand-eye
   homography maps the detection to arm base_link XY. Requires on-site
@@ -20,23 +21,24 @@ Everything is driven through the `jaka_arm` primitive's ROS 2 contracts
 (`pos_command` / `joint_command`), resolved via atlas. See CAPABILITY.md for
 frames, units and known limitations.
 
-## Running the egg demo
+## Running the 固定抓取 demo
 
 1. This repo checked out on `demo` (the deploy's local manifest points at
    `../skill-jaka-rbnx`, so whatever branch is checked out is what boots).
-2. Lower the grip for eggs in the deploy manifest's `jaka_arm` config:
-   `gripper_force: 20` (0-100 scale, applied once at connect — the skill
-   cannot change it per call; verify on a real egg, adjust down/up).
+2. Lower the grip for the fragile demo object (a raw egg) in the deploy
+   manifest's `jaka_arm` config: `gripper_force: 20` (0-100 scale, applied
+   once at connect — the skill cannot change it per call; verify on the
+   real object, adjust down/up).
 3. Calibrate the two fixed poses (teach the arm there, then
    `ros2 topic echo /jaka/end_pose --once`, ROS_DOMAIN_ID=0
    RMW_IMPLEMENTATION=rmw_zenoh_cpp) and set them in the deploy manifest's
    `skill: - name: jaka` config block:
-   `egg_grasp_pose` / `egg_place_pose` (`[x, y, z, rx, ry, rz]`, metres +
+   `fixed_grasp_pose` / `fixed_place_pose` (`[x, y, z, rx, ry, rz]`, metres +
    radians, vertical-down `[π, 0, 0]` typical). Mind reach: each hover is
    z + `travel_offset` and must stay inside the arm's envelope at that
    radial.
 4. Rebuild + reboot the deploy (`bash build.sh && bash start.sh`), then
-   `rbnx ask "抓鸡蛋"`.
+   `rbnx ask "固定抓取"`.
 
 ## Build
 
@@ -57,7 +59,7 @@ the first tool call. Static checks after `bash start.sh`:
 
 ```bash
 rbnx caps -v                              # jaka [INACTIVE] until first call
-rbnx tools                                # jaka_grab / jaka_release / jaka_egg / jaka_pick listed
+rbnx tools                                # jaka_grab / jaka_release / jaka_fixed_grasp / jaka_pick listed
 rbnx contracts -p robonix/skill/jaka
 rbnx describe --provider jaka
 ```

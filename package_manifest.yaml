@@ -7,7 +7,7 @@ start: bash scripts/start.sh
 package:
   name: "robonix.skill.jaka"
   version: 0.1.0
-  description: "JAKA Mini grab/release + camera-driven pick skill; demo branch adds fixed-pose egg pick-and-place."
+  description: "JAKA Mini grab/release + camera-driven pick skill; demo branch adds fixed-pose pick-and-place (固定抓取)."
   tags:
     - skill
     - jaka
@@ -22,8 +22,8 @@ capabilities:
     path: capabilities/grab.v1.toml
   - name: robonix/skill/jaka/release
     path: capabilities/release.v1.toml
-  - name: robonix/skill/jaka/egg
-    path: capabilities/egg.v1.toml
+  - name: robonix/skill/jaka/fixed_grasp
+    path: capabilities/fixed_grasp.v1.toml
   - name: robonix/skill/jaka/pick
     path: capabilities/pick.v1.toml
 

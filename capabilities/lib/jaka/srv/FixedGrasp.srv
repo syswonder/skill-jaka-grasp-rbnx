@@ -1,0 +1,20 @@
+# Pick the demo object up from the configured fixed_grasp_pose and set it
+# down at the configured fixed_place_pose — both FIXED config values, no
+# perception, no arguments. The demo object is fragile (a raw egg): safe
+# gripping requires a LOW gripper_force in jaka_arm's config (applied
+# once at connect; the skill cannot change it per call).
+#
+# Request has no fields — the tool takes no arguments ({}).
+---
+# Whether the flow completed (every waypoint converged; non-fatal lift
+# failures are reported in `message`).
+bool success
+
+# Human-readable status. On failure, names the failing stage (preflight /
+# grasp/open / approach / descend / grasp/close / lift /
+# fixed_grasp/approach / fixed_grasp/descend / fixed_grasp/open /
+# fixed_grasp/lift).
+string message
+
+# How long the whole call took (s).
+float32 elapsed_s

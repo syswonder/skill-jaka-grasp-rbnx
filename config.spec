@@ -67,19 +67,20 @@ config:
   # override here wins and skips atlas resolution for that topic.
   # topics: { joint_states: /jaka/joint_states }
 
-  # ─────────────────── egg (demo, fixed poses) ───────────────────
-  # Only the `egg` tool uses the keys below. Both REQUIRED for egg; until
-  # set, `egg` reports unavailable (grab/release/pick unaffected). Each
-  # hover is derived as z + travel_offset (pick's height model — mind the
-  # reach note there). EGGS ARE FRAGILE: grip force is jaka_arm's one-time
-  # gripper_force config (0-100), LOWER it on-site and verify on a real
-  # egg; arm speeds likewise come from jaka_arm.
+  # ──────────────── fixed_grasp (demo, fixed poses) ────────────────
+  # Only the `fixed_grasp` tool uses the keys below. Both REQUIRED for
+  # fixed_grasp; until set, `fixed_grasp` reports unavailable
+  # (grab/release/pick unaffected). Each hover is derived as z +
+  # travel_offset (pick's height model — mind the reach note there).
+  # THE DEMO OBJECT IS FRAGILE (a raw egg): grip force is jaka_arm's
+  # one-time gripper_force config (0-100), LOWER it on-site and verify on
+  # the real object; arm speeds likewise come from jaka_arm.
 
-  # list of 6 floats, metres + radians. Where the egg is picked up.
-  # egg_grasp_pose: [0.20, -0.10, 0.125, 3.14159265, 0.0, 0.0]
+  # list of 6 floats, metres + radians. Where the object is picked up.
+  # fixed_grasp_pose: [0.20, -0.10, 0.125, 3.14159265, 0.0, 0.0]
 
-  # list of 6 floats, metres + radians. Where the egg is set down.
-  # egg_place_pose: [0.20, 0.10, 0.125, 3.14159265, 0.0, 0.0]
+  # list of 6 floats, metres + radians. Where the object is set down.
+  # fixed_place_pose: [0.20, 0.10, 0.125, 3.14159265, 0.0, 0.0]
 
   # ─────────────────────── pick (perception) ───────────────────────────
   # Only the `pick` tool uses the keys below. grab/release need NONE of

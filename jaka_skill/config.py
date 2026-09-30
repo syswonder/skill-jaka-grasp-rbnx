@@ -204,11 +204,12 @@ class SkillConfig:
     poll_s: float = 0.05
     min_grasp_descent_m: float = 0.005
     topics: dict = field(default_factory=dict)
-    # ── egg (demo): fixed-pose pick-and-place. Optional like pick's
-    # calibration — unset disables only `egg` (checked at tool-call time,
-    # NOT a config_error: grab/release/pick must keep working). ──
-    egg_grasp_pose: Optional[list[float]] = None
-    egg_place_pose: Optional[list[float]] = None
+    # ── fixed_grasp (demo): fixed-pose pick-and-place. Optional like
+    # pick's calibration — unset disables only `fixed_grasp` (checked at
+    # tool-call time, NOT a config_error: grab/release/pick must keep
+    # working). ──
+    fixed_grasp_pose: Optional[list[float]] = None
+    fixed_place_pose: Optional[list[float]] = None
     # ── pick (perception) — separate from grab so grab works uncalibrated ──
     camera_provider_id: str = "orbbec_camera"
     camera_topic: str = ""
@@ -258,14 +259,17 @@ class SkillConfig:
         return "; ".join(missing)
 
     @property
-    def egg_error(self) -> str:
-        """Why `egg` is unavailable (empty = ready). Same pattern as
-        pick_error: an egg-only gap must not block grab/release/pick."""
+    def fixed_grasp_error(self) -> str:
+        """Why `fixed_grasp` is unavailable (empty = ready). Same pattern
+        as pick_error: a fixed_grasp-only gap must not block
+        grab/release/pick."""
         missing = []
-        if self.egg_grasp_pose is None:
-            missing.append("egg_grasp_pose (where the egg is picked up)")
-        if self.egg_place_pose is None:
-            missing.append("egg_place_pose (where the egg is set down)")
+        if self.fixed_grasp_pose is None:
+            missing.append(
+                "fixed_grasp_pose (where the object is picked up)")
+        if self.fixed_place_pose is None:
+            missing.append(
+                "fixed_place_pose (where the object is set down)")
         return "; ".join(missing)
 
     @classmethod
@@ -303,8 +307,8 @@ class SkillConfig:
             min_grasp_descent_m=_num(cfg, "min_grasp_descent_m", 0.005,
                                      minimum=0.001),
             topics=topics,
-            egg_grasp_pose=_pose6(cfg, "egg_grasp_pose"),
-            egg_place_pose=_pose6(cfg, "egg_place_pose"),
+            fixed_grasp_pose=_pose6(cfg, "fixed_grasp_pose"),
+            fixed_place_pose=_pose6(cfg, "fixed_place_pose"),
             camera_provider_id=_text(cfg, "camera_provider_id",
                                      "orbbec_camera"),
             camera_topic=_text(cfg, "camera_topic", ""),
