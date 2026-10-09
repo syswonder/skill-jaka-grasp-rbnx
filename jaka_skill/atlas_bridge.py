@@ -38,7 +38,8 @@ from .camera import CameraFrames
 from .config import SkillConfig
 from .detect import DetectConfig, Detector
 from .geometry import Homography, bbox_yaw_rad
-from .motion import Arm, MotionError
+from .motion import (GRASP_CLOSED_THRESHOLD_M, GRIPPER_OPEN_THRESHOLD_M, Arm,
+                     MotionError)
 
 logging.basicConfig(
     level=os.environ.get("JAKA_SKILL_LOG_LEVEL", "INFO"),
@@ -254,13 +255,24 @@ def deactivate():
 
 # ── flows ───────────────────────────────────────────────────────────────────
 
+# Verification retries: a close whose settled width shows fully-closed
+# fingers (nothing between them) or a gripper that never closed is retried
+# from hover; when the last attempt also fails the flow raises.
+_GRASP_MAX_ATTEMPTS = 2
+
+
 def _grasp_segment(arm: Arm, cfg: SkillConfig, hover_pose: list[float],
                    grasp_pose: list[float]) -> str:
-    """Shared grasp segment: open -> hover -> descend -> close -> lift.
+    """Shared grasp segment: open -> hover -> (descend -> close -> verify)
+    x _GRASP_MAX_ATTEMPTS -> lift.
 
     hover_pose / grasp_pose are [x, y, z, rx, ry, rz]. Used by both `grab`
     (poses from config) and `pick` (grasp XY computed from perception, hover
     lifted by travel_offset). A failed lift is non-fatal (object already held).
+    A settled width < GRASP_CLOSED_THRESHOLD_M (or >= the open threshold)
+    means nothing was grasped: retry from hover; a repeated failure raises.
+    Unreadable gripper feedback is not evidence of failure — the attempt
+    proceeds with the message marked unverified.
     """
     hover_xyz, hover_rpy = hover_pose[:3], hover_pose[3:]
     grasp_xyz, grasp_rpy = grasp_pose[:3], grasp_pose[3:]
@@ -269,18 +281,41 @@ def _grasp_segment(arm: Arm, cfg: SkillConfig, hover_pose: list[float],
         arm.settle_gripper(expect_open=True, stage="grasp/open")
     arm.move_pose(hover_xyz, hover_rpy, stage="approach",
                   timeout_s=cfg.pose_timeout_s)
-    arm.move_pose(grasp_xyz, grasp_rpy, stage="descend",
-                  timeout_s=cfg.pose_timeout_s)
-    arm.set_gripper(cfg.gripper_close_m, stage="grasp/close")
-    arm.settle_gripper(expect_open=False, stage="grasp/close")
+    note = ""
+    for attempt in range(1, _GRASP_MAX_ATTEMPTS + 1):
+        tag = "grasp" if attempt == 1 else f"grasp/retry{attempt - 1}"
+        arm.move_pose(grasp_xyz, grasp_rpy, stage=f"{tag}/descend",
+                      timeout_s=cfg.pose_timeout_s)
+        t_close = arm.set_gripper(cfg.gripper_close_m, stage=f"{tag}/close")
+        arm.settle_gripper(expect_open=False, stage=f"{tag}/close")
+        width = arm.wait_gripper_settled(since=t_close)
+        if width is None:
+            note = " (grasp unverified: no settled gripper feedback)"
+            log.warning("%s: no settled gripper width — grasp unverified", tag)
+            break
+        if width < GRASP_CLOSED_THRESHOLD_M:
+            problem = (f"gripper fully closed (width {width * 1000:.1f} mm) — "
+                       f"nothing between the fingers")
+        elif width >= GRIPPER_OPEN_THRESHOLD_M:
+            problem = f"gripper never closed (width {width * 1000:.1f} mm)"
+        else:
+            break  # the fingers closed on something
+        if attempt == _GRASP_MAX_ATTEMPTS:
+            raise MotionError(f"grasp failed after {attempt} attempts: {problem}")
+        log.info("%s: %s; retrying from hover", tag, problem)
+        arm.set_gripper(cfg.gripper_open_m, stage=f"{tag}/reopen")
+        arm.settle_gripper(expect_open=True, stage=f"{tag}/reopen")
+        arm.move_pose(hover_xyz, hover_rpy, stage=f"{tag}/back-off",
+                      timeout_s=cfg.pose_timeout_s)
     try:
         arm.move_pose(hover_xyz, hover_rpy, stage="lift",
                       timeout_s=cfg.pose_timeout_s)
     except MotionError as exc:
         # The object is already in the fingers: a failed lift is a warning,
         # not a failure (the arm stays at the grasp pose, holding).
-        return f"grabbed (held at grasp pose); lift failed: {exc}"
-    return "grabbed and lifted back to hover"
+        return f"grabbed (held at grasp pose); lift failed: {exc}{note}"
+    suffix = f" (attempt {attempt})" if attempt > 1 else ""
+    return f"grabbed and lifted back to hover{suffix}{note}"
 
 
 def _run_grab(arm: Arm, cfg: SkillConfig) -> str:
@@ -417,8 +452,10 @@ def grab(_req: Grab_Request) -> Grab_Response:
     come from the deployment config. Use this when the user says "grab it
     / 抓" and the object is already positioned at the configured grasp
     pose. Opens the gripper, moves to hover, descends to grasp, closes the
-    gripper, waits for it to settle, then lifts back to hover and holds.
-    Blocks until done. Takes no arguments.
+    gripper, verifies the close by width (fingers fully closed = nothing
+    grasped → one retry from hover; a repeated empty close fails the tool),
+    then lifts back to hover and holds. Blocks until done. Takes no
+    arguments.
     """
     cfg = _require_active()
     arm = _arm
@@ -436,10 +473,10 @@ def release(_req: Release_Request) -> Release_Response:
     """Open the gripper WHERE THE ARM IS — zero arm motion. Use this when
     the user says "release / let go here / 松开 / 松手" and the arm must
     stay put (for setting the object down at the configured place pose,
-    use `place` instead). Because the gripper's RS485 position reads are
-    broken on this arm, the opening is NOT verifiable by software —
-    observe the fingers. Blocks until the settle wait completes. Takes no
-    arguments.
+    use `place` instead). Gripper position feedback refreshes slowly
+    (~1.3 s per RS485 read), so the settle wait may end before a
+    confirming reading arrives — observe the fingers if in doubt. Blocks
+    until the settle wait completes. Takes no arguments.
     """
     cfg = _require_active()
     arm = _arm
@@ -533,9 +570,10 @@ def pick(req: Pick_Request) -> Pick_Response:
     location comes from perception. Pass the user's target description as
     `object`; a camera frame is captured, a vision model locates the object,
     the pixel is mapped to an arm position via the calibrated 2D homography,
-    and the arm descends onto it, closes, and lifts. Requires a calibrated
-    homography + a configured VLM (returns a clear error otherwise). Blocks
-    until done.
+    and the arm descends onto it, closes (verified by width: an empty close
+    is retried once from hover, then fails the tool), and lifts. Requires a
+    calibrated homography + a configured VLM (returns a clear error
+    otherwise). Blocks until done.
     """
     cfg = _require_active()
     if cfg.pick_error:

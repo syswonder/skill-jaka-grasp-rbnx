@@ -28,6 +28,22 @@ GRIPPER_JOINT_NAME = "gripper_joint"
 GRIPPER_STROKE_M = 0.098        # TG-9801 stroke, matches the provider
 GRIPPER_OPEN_THRESHOLD_M = 0.5 * GRIPPER_STROKE_M
 
+# Grasp verification (after grasp/close). A settled width below
+# GRASP_CLOSED_THRESHOLD_M means the fingers closed on air (nothing between
+# them); at/above GRIPPER_OPEN_THRESHOLD_M they never closed at all.
+# The provider republishes its cached reading (<=2 s cache, ~1.3 s per RS485
+# read), so one sample can still carry a pre-command or mid-travel value —
+# only trust two samples at least GRIPPER_SETTLE_GAP_S apart that agree
+# within GRIPPER_SETTLE_TOL_M, which spans at least one fresh read. The gap
+# also covers a read that had to retry (2 s cache + 2x read).
+GRASP_CLOSED_THRESHOLD_M = 0.005
+GRIPPER_SETTLE_GAP_S = 5.0
+GRIPPER_SETTLE_TOL_M = 0.002
+# Deadline for the verdict, measured from the wait's start (after the 1.5 s
+# settle): first post-command read (<=3.3 s) + gap + one read that landed
+# mid-travel (<=3.3 s) + slack.
+GRASP_VERIFY_TIMEOUT_S = 13.0
+
 
 class MotionError(RuntimeError):
     """A motion step failed; `str(e)` is the operator/LLM-facing text."""
@@ -366,12 +382,14 @@ class Arm:
             f"config (rejections are logged there as 'motion command "
             f"rejected').")
 
-    def set_gripper(self, open_m: float, *, stage: str) -> None:
+    def set_gripper(self, open_m: float, *, stage: str) -> float:
         """Command the gripper by publishing `gripper_joint` ALONE.
 
         The provider back-fills the six arm joints from its own live
         feedback (jaka_arm/main.py `_exec_joint_command`), so the commanded
         arm target IS the current pose — zero arm motion by construction.
+        Returns the time of the last publish: gripper samples received after
+        it are the ones that can reflect this command.
         """
         pub = self._pub_joint_command
         node = self._node
@@ -393,12 +411,46 @@ class Arm:
             msg.position = [value]
             pub.publish(msg)
             time.sleep(self.cfg.gripper_publish_period_s)
+        return time.monotonic()
+
+    def wait_gripper_settled(self, *, since: float) -> Optional[float]:
+        """Width (m) once the gripper has stopped moving, else None (timeout).
+
+        The provider republishes its cached reading (<=2 s cache, ~1.3 s per
+        RS485 read), so one fresh sample can still carry a pre-command or
+        mid-travel value. A width is only returned when two samples at least
+        GRIPPER_SETTLE_GAP_S apart agree within GRIPPER_SETTLE_TOL_M — that
+        window spans at least one new read, so a moving gripper cannot pass.
+        Samples received before `since` (the command's publish time) are
+        ignored; a width that never settles returns None, not a verdict.
+        Rarely, two reads sampled just before the command's write lands
+        agree on the pre-command width: the verdict then reads as that
+        width. Callers treat it as "not closed" and retry — a safe,
+        bounded cost (Monte-Carlo: ~0.1% of grasps, never a false
+        "grasped").
+        """
+        deadline = time.monotonic() + GRASP_VERIFY_TIMEOUT_S
+        anchors: list[tuple[float, float]] = []  # (width, receipt time)
+        while time.monotonic() < deadline:
+            width, mono = self.gripper_width_now()
+            if width is not None and mono is not None and mono > since:
+                # Compare this sample against every anchor that is now old
+                # enough (each anchor is compared exactly once, then dropped:
+                # a mid-travel value must not linger as a candidate).
+                while anchors and mono - anchors[0][1] >= GRIPPER_SETTLE_GAP_S:
+                    old_width, _ = anchors.pop(0)
+                    if abs(width - old_width) <= GRIPPER_SETTLE_TOL_M:
+                        return (width + old_width) / 2.0
+                anchors.append((width, mono))
+            time.sleep(self.cfg.poll_s)
+        return None
 
     def settle_gripper(self, *, expect_open: bool, stage: str) -> str:
-        """Fixed wait after a gripper command. TG-9801 RS485 reads are
-        invalid on this arm, so normally this is just a timer; if a fresh
-        gripper_joint reading happens to appear and already matches the
-        expectation, return early (free upside, never a dependency)."""
+        """Fixed wait after a gripper command. A TG-9801 position read takes
+        ~1.3 s (single-entry RS485 path) and refreshes on a slow cadence, so
+        normally this is just a timer; if a fresh gripper_joint reading
+        happens to appear and already matches the expectation, return early
+        (free upside, never a dependency)."""
         deadline = time.monotonic() + self.cfg.gripper_settle_s
         while time.monotonic() < deadline:
             width, mono = self.gripper_width_now()
@@ -410,5 +462,5 @@ class Arm:
                         f"(width {width:.4f} m)")
             time.sleep(0.05)
         return (f"gripper {'open' if expect_open else 'close'} command "
-                f"issued; settled {self.cfg.gripper_settle_s:.1f}s — opening "
-                f"NOT verifiable (RS485 reads invalid), observe the fingers")
+                f"issued; settled {self.cfg.gripper_settle_s:.1f}s — no fresh "
+                f"gripper feedback matched within the wait, observe the fingers")
