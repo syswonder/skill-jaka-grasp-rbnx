@@ -38,8 +38,7 @@ from .camera import CameraFrames
 from .config import SkillConfig
 from .detect import DetectConfig, Detector
 from .geometry import Homography, bbox_yaw_rad
-from .motion import (GRASP_CLOSED_THRESHOLD_M, GRIPPER_OPEN_THRESHOLD_M, Arm,
-                     MotionError)
+from .motion import GRASP_CLOSED_THRESHOLD_M, Arm, MotionError
 
 logging.basicConfig(
     level=os.environ.get("JAKA_SKILL_LOG_LEVEL", "INFO"),
@@ -256,8 +255,8 @@ def deactivate():
 # ── flows ───────────────────────────────────────────────────────────────────
 
 # Verification retries: a close whose settled width shows fully-closed
-# fingers (nothing between them) or a gripper that never closed is retried
-# from hover; when the last attempt also fails the flow raises.
+# fingers (nothing between them) is retried from hover; when the last
+# attempt also fails the flow raises.
 _GRASP_MAX_ATTEMPTS = 2
 
 
@@ -269,8 +268,12 @@ def _grasp_segment(arm: Arm, cfg: SkillConfig, hover_pose: list[float],
     hover_pose / grasp_pose are [x, y, z, rx, ry, rz]. Used by both `grab`
     (poses from config) and `pick` (grasp XY computed from perception, hover
     lifted by travel_offset). A failed lift is non-fatal (object already held).
-    A settled width < GRASP_CLOSED_THRESHOLD_M (or >= the open threshold)
-    means nothing was grasped: retry from hover; a repeated failure raises.
+    A settled width < GRASP_CLOSED_THRESHOLD_M means the fingers met on air
+    (nothing between them): retry from hover; a repeated failure raises.
+    Any wider settled width counts as grasped — an empty close runs to the
+    ~0 m stop, so only "fully closed" is reliable evidence of a miss; width
+    alone cannot separate a gripped object from a close that never executed
+    (2026-10-12 decision: assume grasped whenever not fully closed).
     Unreadable gripper feedback is not evidence of failure — the attempt
     proceeds with the message marked unverified.
     """
@@ -296,10 +299,8 @@ def _grasp_segment(arm: Arm, cfg: SkillConfig, hover_pose: list[float],
         if width < GRASP_CLOSED_THRESHOLD_M:
             problem = (f"gripper fully closed (width {width * 1000:.1f} mm) — "
                        f"nothing between the fingers")
-        elif width >= GRIPPER_OPEN_THRESHOLD_M:
-            problem = f"gripper never closed (width {width * 1000:.1f} mm)"
         else:
-            break  # the fingers closed on something
+            break  # stopped short of fully closed: something is in the fingers
         if attempt == _GRASP_MAX_ATTEMPTS:
             raise MotionError(f"grasp failed after {attempt} attempts: {problem}")
         log.info("%s: %s; retrying from hover", tag, problem)

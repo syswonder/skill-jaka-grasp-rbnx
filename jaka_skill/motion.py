@@ -26,11 +26,18 @@ log = logging.getLogger("jaka_skill")
 JOINT_NAMES = [f"joint_{i}" for i in range(1, 7)]
 GRIPPER_JOINT_NAME = "gripper_joint"
 GRIPPER_STROKE_M = 0.098        # TG-9801 stroke, matches the provider
+# Binary open/closed split of the adaptive grip (provider set_gripper_open_m:
+# >= half stroke = release, else grip). A *command* threshold, not a
+# grasp-verdict one.
 GRIPPER_OPEN_THRESHOLD_M = 0.5 * GRIPPER_STROKE_M
 
 # Grasp verification (after grasp/close). A settled width below
-# GRASP_CLOSED_THRESHOLD_M means the fingers closed on air (nothing between
-# them); at/above GRIPPER_OPEN_THRESHOLD_M they never closed at all.
+# GRASP_CLOSED_THRESHOLD_M means the fingers met on air: an empty close runs
+# the adaptive grip to the ~0 m stop, so "fully closed" is the reliable
+# no-object signature. Any wider settled width counts as grasped — width
+# alone cannot separate a gripped object (settling at its own width,
+# possibly > half stroke) from a close that never executed (2026-10-12
+# decision: assume grasped whenever not fully closed).
 # The provider republishes its cached reading (<=2 s cache, ~1.3 s per RS485
 # read), so one sample can still carry a pre-command or mid-travel value —
 # only trust two samples at least GRIPPER_SETTLE_GAP_S apart that agree
@@ -425,9 +432,9 @@ class Arm:
         ignored; a width that never settles returns None, not a verdict.
         Rarely, two reads sampled just before the command's write lands
         agree on the pre-command width: the verdict then reads as that
-        width. Callers treat it as "not closed" and retry — a safe,
-        bounded cost (Monte-Carlo: ~0.1% of grasps, never a false
-        "grasped").
+        width (the full-open value). Under the only-fully-closed-fails
+        rule that counts as grasped — correct for a real grasp, and the
+        accepted residual false-grasped corner for an empty one.
         """
         deadline = time.monotonic() + GRASP_VERIFY_TIMEOUT_S
         anchors: list[tuple[float, float]] = []  # (width, receipt time)
