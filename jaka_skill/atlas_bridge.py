@@ -255,27 +255,36 @@ def deactivate():
 # ── flows ───────────────────────────────────────────────────────────────────
 
 # Verification retries: a close whose settled width shows fully-closed
-# fingers (nothing between them) is retried from hover; when the last
+# fingers (nothing between them) is retried — from hover for the fixed-pose
+# callers, and via a home reset + fresh detection for `pick`; when the last
 # attempt also fails the flow raises.
 _GRASP_MAX_ATTEMPTS = 2
 
 
 def _grasp_segment(arm: Arm, cfg: SkillConfig, hover_pose: list[float],
-                   grasp_pose: list[float]) -> str:
+                   grasp_pose: list[float], relocalize=None) -> str:
     """Shared grasp segment: open -> hover -> (descend -> close -> verify)
     x _GRASP_MAX_ATTEMPTS -> lift.
 
-    hover_pose / grasp_pose are [x, y, z, rx, ry, rz]. Used by both `grab`
-    (poses from config) and `pick` (grasp XY computed from perception, hover
-    lifted by travel_offset). A failed lift is non-fatal (object already held).
+    hover_pose / grasp_pose are [x, y, z, rx, ry, rz]. Used by `grab` and
+    `fixed_grasp` (poses from config) and `pick` (grasp XY computed from
+    perception, hover lifted by travel_offset). A failed lift is non-fatal
+    (object already held).
     A settled width < GRASP_CLOSED_THRESHOLD_M means the fingers met on air
-    (nothing between them): retry from hover; a repeated failure raises.
-    Any wider settled width counts as grasped — an empty close runs to the
-    ~0 m stop, so only "fully closed" is reliable evidence of a miss; width
-    alone cannot separate a gripped object from a close that never executed
+    (nothing between them): retry; a repeated failure raises. Any wider
+    settled width counts as grasped — an empty close runs to the ~0 m stop,
+    so only "fully closed" is reliable evidence of a miss; width alone
+    cannot separate a gripped object from a close that never executed
     (2026-10-12 decision: assume grasped whenever not fully closed).
     Unreadable gripper feedback is not evidence of failure — the attempt
     proceeds with the message marked unverified.
+
+    The retry strategy depends on `relocalize`: without it (grab /
+    fixed_grasp — fixed poses) the arm backs off to hover and repeats the
+    same pose; with it (pick) the arm first resets to `home_joints`, out of
+    the object area — the hover pose sits directly over the object and can
+    block the fixed camera — then `relocalize()` re-detects and returns
+    fresh (hover, grasp) poses for the next attempt.
     """
     hover_xyz, hover_rpy = hover_pose[:3], hover_pose[3:]
     grasp_xyz, grasp_rpy = grasp_pose[:3], grasp_pose[3:]
@@ -303,10 +312,20 @@ def _grasp_segment(arm: Arm, cfg: SkillConfig, hover_pose: list[float],
             break  # stopped short of fully closed: something is in the fingers
         if attempt == _GRASP_MAX_ATTEMPTS:
             raise MotionError(f"grasp failed after {attempt} attempts: {problem}")
-        log.info("%s: %s; retrying from hover", tag, problem)
         arm.set_gripper(cfg.gripper_open_m, stage=f"{tag}/reopen")
         arm.settle_gripper(expect_open=True, stage=f"{tag}/reopen")
-        arm.move_pose(hover_xyz, hover_rpy, stage=f"{tag}/back-off",
+        if relocalize is None:
+            log.info("%s: %s; retrying from hover", tag, problem)
+            arm.move_pose(hover_xyz, hover_rpy, stage=f"{tag}/back-off",
+                          timeout_s=cfg.pose_timeout_s)
+            continue
+        log.info("%s: %s; resetting to home then re-locating", tag, problem)
+        arm.move_joints(cfg.home_joints, stage=f"{tag}/reset",
+                        timeout_s=cfg.pose_timeout_s)
+        hover_pose, grasp_pose = relocalize()
+        hover_xyz, hover_rpy = hover_pose[:3], hover_pose[3:]
+        grasp_xyz, grasp_rpy = grasp_pose[:3], grasp_pose[3:]
+        arm.move_pose(hover_xyz, hover_rpy, stage=f"{tag}/approach",
                       timeout_s=cfg.pose_timeout_s)
     try:
         arm.move_pose(hover_xyz, hover_rpy, stage="lift",
@@ -334,28 +353,40 @@ def _run_pick(arm: Arm, cfg: SkillConfig, object_name: str) -> str:
     Offset derivation (AIIT JAKA parity, same rig): AIIT commands
     R = Ry(180)·Rz(deg(yaw) - 90); this skill commands R = Rz(rz)·Rx(pi);
     the two are equal iff rz = 180 - (deg(yaw) - 90) == -90 - deg(yaw)
-    (mod 360, absorbed by j6) — hence the default offset of -90."""
+    (mod 360, absorbed by j6) — hence the default offset of -90.
+
+    A verify-failed (empty-close) attempt retries through `locate` again:
+    _grasp_segment resets the arm home first, then the retry runs a full
+    fresh detection for its pose."""
     arm.wait_feedback_ready("preflight", cfg.feedback_timeout_s)
     if _detector is None or _homography is None:
         raise MotionError("pick not available (perception not initialised)")
-    result = _detector.detect(object_name)  # raises RuntimeError on no-detect
-    bbox = result.get("bbox_2d") or []
-    arm_xy = _homography.bbox_center_to_arm_xy(bbox)
-    if arm_xy is None:
-        raise MotionError(
-            f"geometry failed: could not project bbox {bbox} to arm base "
-            f"(check homography_matrix calibration)")
-    x, y = arm_xy
-    rpy = list(cfg.grasp_rpy)
-    yaw = bbox_yaw_rad(bbox)  # None on the 4-element (vlm) bbox
-    if yaw is not None:
-        rpy[2] = math.radians(cfg.grasp_yaw_offset_deg - math.degrees(yaw))
-    grasp_pose = [x, y, cfg.desktop_height, *rpy]
-    hover_pose = [x, y, cfg.desktop_height + cfg.travel_offset, *rpy]
-    log.info("pick '%s' -> bbox %s -> arm xy (%.3f, %.3f), grasp z %.3f, "
-             "yaw %s", object_name, bbox, x, y, cfg.desktop_height,
-             f"{yaw:+.3f} rad" if yaw is not None else "n/a (fixed rpy)")
-    return _grasp_segment(arm, cfg, hover_pose, grasp_pose)
+
+    def locate():
+        """One full look: detect -> homography -> (hover, grasp) poses. Also
+        the retry path's re-detection; raises like the first look does
+        (RuntimeError from the detector, MotionError from geometry)."""
+        result = _detector.detect(object_name)  # raises RuntimeError on no-detect
+        bbox = result.get("bbox_2d") or []
+        arm_xy = _homography.bbox_center_to_arm_xy(bbox)
+        if arm_xy is None:
+            raise MotionError(
+                f"geometry failed: could not project bbox {bbox} to arm base "
+                f"(check homography_matrix calibration)")
+        x, y = arm_xy
+        rpy = list(cfg.grasp_rpy)
+        yaw = bbox_yaw_rad(bbox)  # None on the 4-element (vlm) bbox
+        if yaw is not None:
+            rpy[2] = math.radians(cfg.grasp_yaw_offset_deg - math.degrees(yaw))
+        grasp = [x, y, cfg.desktop_height, *rpy]
+        hover = [x, y, cfg.desktop_height + cfg.travel_offset, *rpy]
+        log.info("pick '%s' -> bbox %s -> arm xy (%.3f, %.3f), grasp z %.3f, "
+                 "yaw %s", object_name, bbox, x, y, cfg.desktop_height,
+                 f"{yaw:+.3f} rad" if yaw is not None else "n/a (fixed rpy)")
+        return hover, grasp
+
+    hover_pose, grasp_pose = locate()
+    return _grasp_segment(arm, cfg, hover_pose, grasp_pose, relocalize=locate)
 
 
 def _run_release(arm: Arm, cfg: SkillConfig) -> str:
@@ -572,7 +603,8 @@ def pick(req: Pick_Request) -> Pick_Response:
     `object`; a camera frame is captured, a vision model locates the object,
     the pixel is mapped to an arm position via the calibrated 2D homography,
     and the arm descends onto it, closes (verified by width: an empty close
-    is retried once from hover, then fails the tool), and lifts. Requires a
+    resets the arm home, re-detects the object and retries once with the
+    fresh pose, then fails the tool), and lifts. Requires a
     calibrated homography + a configured VLM (returns a clear error
     otherwise). Blocks until done.
     """
