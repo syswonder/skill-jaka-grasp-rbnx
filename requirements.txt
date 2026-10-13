@@ -1,0 +1,11 @@
+# Runtime deps of the skill process (venv created by scripts/build.sh with
+# --system-site-packages so rclpy and cv2/numpy from the system installs are
+# visible). robonix_api is loaded from the Robonix source tree via PYTHONPATH
+# (rbnx path robonix-api); its pinned deps are repeated here.
+grpcio==1.80.0
+protobuf==6.33.6
+mcp>=1.27,<2
+fastmcp>=3,<5
+pyyaml>=6
+# codegen interpreter extras (rbnx codegen --python <venv python>)
+grpcio-tools==1.76.0

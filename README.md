@@ -52,12 +52,16 @@ frames, units and known limitations.
 
 ```bash
 rbnx build -p ../skill-jaka-rbnx        # from the deploy repo
-# or standalone (needs grpcio-tools on the codegen interpreter):
-RBNX_CODEGEN_PYTHON=/home/nvidia/robot-jaka-mini/.venv/bin/python \
-  rbnx build -p /home/nvidia/skill-jaka-rbnx
+# or standalone:
+bash scripts/build.sh
 ```
 
-Outputs `rbnx-build/codegen/{proto_gen, robonix_mcp_types, ros2_idl}`.
+`build.sh` provisions a package-local `.venv` (runtime + codegen deps, see
+`requirements.txt`) and uses its interpreter for codegen, so the generated
+stubs and the runtime protobuf always agree. `start.sh` runs the venv
+interpreter by absolute path (`"$PKG/.venv/bin/python"`) and does not depend
+on `PATH` — under `robonix-console` boots a deployment-venv path on `PATH`
+is not dependable. Outputs `rbnx-build/codegen/{proto_gen, robonix_mcp_types, ros2_idl}`.
 
 ## Boot
 

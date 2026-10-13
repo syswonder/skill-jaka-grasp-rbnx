@@ -17,8 +17,14 @@ if [[ ! -d "$PKG_ROOT/rbnx-build/codegen/proto_gen" || ! -d "$PKG_ROOT/rbnx-buil
   echo "[jaka_skill/start] ERR: codegen output missing — run scripts/build.sh first" >&2
   exit 2
 fi
+if [[ ! -x "$PKG_ROOT/.venv/bin/python" ]]; then
+  echo "[jaka_skill/start] ERR: package venv missing — run scripts/build.sh first" >&2
+  exit 2
+fi
 
 export PYTHONPATH="$PKG_ROOT/rbnx-build/codegen/proto_gen:$PKG_ROOT/rbnx-build/codegen/robonix_mcp_types:$(rbnx path robonix-api):$PKG_ROOT:${PYTHONPATH:-}"
 
-# python3 resolves to the deploy venv interpreter (manifest env: PATH).
-exec python3 -u -m jaka_skill.atlas_bridge
+# Package-local venv interpreter by absolute path: the runtime deps
+# (mcp / fastmcp / grpcio / protobuf) live there, so the skill does not
+# depend on the caller's PATH (see scripts/build.sh).
+exec "$PKG_ROOT/.venv/bin/python" -u -m jaka_skill.atlas_bridge

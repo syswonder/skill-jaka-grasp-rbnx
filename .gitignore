@@ -1,4 +1,5 @@
 rbnx-build/
 __pycache__/
 *.pyc
+.venv/
 logs/
