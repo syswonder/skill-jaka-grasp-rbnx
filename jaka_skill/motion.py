@@ -31,6 +31,31 @@ GRIPPER_STROKE_M = 0.098        # TG-9801 stroke, matches the provider
 # grasp-verdict one.
 GRIPPER_OPEN_THRESHOLD_M = 0.5 * GRIPPER_STROKE_M
 
+# ── dexterous hand (provider end_effector: hand) ──────────────────────────────
+# When the arm's joint_states carries the O6 hand joints instead of
+# `gripper_joint`, feedback is reconstructed from the four grasp fingers
+# (thumb flexion + index/middle/ring flexion — the AIIT grasp口径, pinky
+# excluded). (joint name, URDF upper limit rad) — upper limits must match
+# the deployment URDF; the provider converts rad as
+# `rad = (1 - raw/255) * upper`, so openness (0 = fully flexed ⇒ 1 =
+# straight, i.e. raw/255) recovers as `1 - rad/upper`.
+HAND_GRASP_JOINTS = (
+    ("thumb_cmc_pitch", 0.52),
+    ("index_mcp_pitch", 1.57),
+    ("middle_mcp_pitch", 1.57),
+    ("ring_mcp_pitch", 1.57),
+)
+# Measured on the real O6 (2026-10-16, two empty cycles identical): the open
+# pose reads mean openness 0.923; an EMPTY close settles at 0.119 — the
+# index/middle links rest at raw ~60 against their mechanical stops
+# (thumb/ring reach 0). Verdicts therefore treat openness through the same
+# width-like scale the TG-9801 width uses: an affine map anchoring empty
+# close at 0 m and full open at the stroke, so every existing threshold
+# (GRASP_CLOSED_THRESHOLD_M etc.) keeps its meaning. Re-measure if the hand
+# mechanics change.
+HAND_OPEN_OPENNESS = 0.923
+HAND_EMPTY_CLOSE_OPENNESS = 0.119
+
 # Grasp verification (after grasp/close). A settled width below
 # GRASP_CLOSED_THRESHOLD_M means the fingers met on air: an empty close runs
 # the adaptive grip to the ~0 m stop, so "fully closed" is the reliable
@@ -50,6 +75,22 @@ GRIPPER_SETTLE_TOL_M = 0.002
 # settle): first post-command read (<=3.3 s) + gap + one read that landed
 # mid-travel (<=3.3 s) + slack.
 GRASP_VERIFY_TIMEOUT_S = 13.0
+
+
+def hand_openness(msg, idx: dict):
+    """Mean raw openness of the four grasp fingers from a joint_states
+    message (1 = straight, 0 = fully flexed), or None when any grasp finger
+    is missing or non-finite."""
+    fracs = []
+    for name, upper in HAND_GRASP_JOINTS:
+        i = idx.get(name)
+        if i is None or i >= len(msg.position):
+            return None
+        value = msg.position[i]
+        if not math.isfinite(value):
+            return None
+        fracs.append(1.0 - float(value) / upper)
+    return sum(fracs) / len(fracs)
 
 
 class MotionError(RuntimeError):
@@ -234,6 +275,17 @@ class Arm:
                 if math.isfinite(g):
                     self._gripper_m = float(g)
                     self._gripper_mono = time.monotonic()
+                return
+            # Dexterous hand: the arm publishes its joints instead of
+            # `gripper_joint`. Reconstruct the width-like opening so every
+            # verdict threshold keeps its meaning (see HAND_GRASP_JOINTS and
+            # the openness anchors above).
+            openness = hand_openness(msg, idx)
+            if openness is not None:
+                span = HAND_OPEN_OPENNESS - HAND_EMPTY_CLOSE_OPENNESS
+                widened = (openness - HAND_EMPTY_CLOSE_OPENNESS) / span
+                self._gripper_m = GRIPPER_STROKE_M * min(max(widened, 0.0), 1.0)
+                self._gripper_mono = time.monotonic()
 
     # ── feedback accessors ────────────────────────────────────────────────
 

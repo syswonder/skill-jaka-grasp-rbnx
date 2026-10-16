@@ -85,8 +85,10 @@ rbnx describe --provider jaka
    gripper"` — sample `end_pose` before/after; position delta must be
    ≤ 2 mm. Observe the fingers opening.
 3. **grab with small descent steps**: set `grasp_pose` x/y/rpy from step 1,
-   hover z = 0.275, then lower grasp z stepwise 0.20 → 0.175 → 0.15 → 0.125
-   (AIIT verified desktop height, config.yaml:34), rebooting between edits.
+   hover z = 0.29, then lower grasp z stepwise 0.20 → 0.17 → 0.14
+   (0.14 = AIIT's desktop height on this same arm+O6 hand; never go below
+   it — the O6 palm is longer than the TG-9801 fingers and presses the
+   table), rebooting between edits.
 4. Write the calibrated `hover_pose` / `grasp_pose` back into the deploy
    manifest.
 

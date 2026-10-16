@@ -11,11 +11,14 @@ config:
   # (the skill converts to a quaternion with the exact inverse of the
   # provider's quat->RPY step).
   # Height model for this deploy (from AIIT-Roboarm/config.yaml, same
-  # controller and base frame):
-  #   hover z  = default_desktop_height + catch_raise_height = 0.125 + 0.15
-  #   grasp z  = default_desktop_height = 0.125
-  hover_pose: [0.20, 0.00, 0.275, 3.14159265, 0.0, 0.0]
-  grasp_pose: [0.20, 0.00, 0.125, 3.14159265, 0.0, 0.0]
+  # controller, base frame and end effector class — 2026-10-16 updated for
+  # the O6 hand swap; the old 0.125/0.275 TG-9801 values pressed the longer
+  # O6 palm into the table):
+  #   hover z  = default_desktop_height + catch_raise_height = 0.14 + 0.15
+  #   grasp z  = default_desktop_height = 0.14
+  # Both verified reachable by controller IK at the grab radial (~0.23 m).
+  hover_pose: [0.20, 0.00, 0.29, 3.14159265, 0.0, 0.0]
+  grasp_pose: [0.20, 0.00, 0.14, 3.14159265, 0.0, 0.0]
 
   # float, default: 0.098. metres. Gripper opening command for release and
   # the pre-approach open. MUST be >= 0.049 — the TG-9801 is binary in this
@@ -100,7 +103,7 @@ config:
   # Hover is derived as z + travel_offset (the pick height model — mind
   # travel_offset's reach note: on this arm the hover must stay inside the
   # reachable envelope at that radial).
-  # place_pose: [0.20, 0.10, 0.125, 3.14159265, 0.0, 0.0]
+  # place_pose: [0.20, 0.10, 0.14, 3.14159265, 0.0, 0.0]
   # ──────────────── fixed_grasp (demo, fixed poses) ────────────────
   # Only the `fixed_grasp` tool uses the keys below. Both REQUIRED for
   # fixed_grasp; until set, `fixed_grasp` reports unavailable
@@ -111,10 +114,10 @@ config:
   # the real object; arm speeds likewise come from jaka_arm.
 
   # list of 6 floats, metres + radians. Where the object is picked up.
-  # fixed_grasp_pose: [0.20, -0.10, 0.125, 3.14159265, 0.0, 0.0]
+  # fixed_grasp_pose: [0.20, -0.10, 0.14, 3.14159265, 0.0, 0.0]
 
   # list of 6 floats, metres + radians. Where the object is set down.
-  # fixed_place_pose: [0.20, 0.10, 0.125, 3.14159265, 0.0, 0.0]
+  # fixed_place_pose: [0.20, 0.10, 0.14, 3.14159265, 0.0, 0.0]
 
   # ─────────────────────── pick (perception) ───────────────────────────
   # Only the `pick` tool uses the keys below. grab/release need NONE of
@@ -148,14 +151,19 @@ config:
   #   - [0, 0, 1]
   # dist_coeffs: [k1, k2, p1, p2, k3]
 
-  # float, metres, default: 0.125. Table height in arm base_link — the
+  # float, metres, default: 0.14. Table height in arm base_link — the
   # grasp z for every pick. MUST match the real mounting (same frame as
-  # grab's grasp_pose z). A wrong value = empty grasps or table collisions.
-  desktop_height: 0.125
+  # grab's grasp_pose z). A wrong value = empty grasps or table collisions
+  # (2026-10-16: 0.125 was the TG-9801 figure; the longer O6 palm needs
+  # ~0.14 — AIIT's value on the same arm+hand).
+  desktop_height: 0.14
 
-  # float, metres, default: 0.15. Hover/lift height above desktop_height
-  # (hover z = desktop_height + travel_offset).
-  travel_offset: 0.15
+  # float, metres, default: 0.08. Hover/lift height above desktop_height
+  # (hover z = desktop_height + travel_offset). Pick targets sit at the
+  # camera's radial (~0.37 m) where IK caps hover z at ~0.23 — 0.08 keeps
+  # hover at 0.22 with margin. Larger offsets only fit closer to the base
+  # (0.15 reaches at the grab radial but not over the camera field).
+  travel_offset: 0.08
 
   # list of 3 floats, radians, default: [pi, 0, 0] (vertical top-down).
   # Fixed end-effector orientation for the grasp, controller fixed-XYZ RPY.

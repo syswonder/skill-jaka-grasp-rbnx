@@ -248,8 +248,8 @@ class SkillConfig:
     camera_matrix: Optional[list[list[float]]] = None
     dist_coeffs: Optional[list[float]] = None
     homography_matrix: Optional[list[list[float]]] = None
-    desktop_height: float = 0.125
-    travel_offset: float = 0.15
+    desktop_height: float = 0.14
+    travel_offset: float = 0.08
     grasp_rpy: list[float] = field(default_factory=lambda: [math.pi, 0.0, 0.0])
     # ── detection backend: "vlm" (open-vocabulary, axis-aligned bbox) or
     # "yolo" (in-process yolo11-obb; 5th bbox element carries rotation) ──
@@ -351,8 +351,8 @@ class SkillConfig:
             camera_matrix=_matrix(cfg, "camera_matrix"),
             dist_coeffs=_floats(cfg, "dist_coeffs"),
             homography_matrix=_matrix(cfg, "homography_matrix"),
-            desktop_height=_num(cfg, "desktop_height", 0.125),
-            travel_offset=_num(cfg, "travel_offset", 0.15, minimum=0.0),
+            desktop_height=_num(cfg, "desktop_height", 0.14),
+            travel_offset=_num(cfg, "travel_offset", 0.08, minimum=0.0),
             grasp_rpy=_rpy3(cfg, "grasp_rpy", [math.pi, 0.0, 0.0]),
             detect_scheme=_choice(cfg, "detect_scheme", ("vlm", "yolo"), "vlm"),
             yolo_model_path=_text(cfg, "yolo_model_path", ""),
