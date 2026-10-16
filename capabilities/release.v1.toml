@@ -1,4 +1,4 @@
-# robonix/skill/grasp/release — open the gripper WHERE THE ARM IS.
+# robonix/skill/jaka/grasp/release — open the gripper WHERE THE ARM IS.
 #
 # User-invocable atomic intent: "release / let go here / 松开 / 松手" (for
 # 放下/放置 at a configured location, use `place`). ZERO arm
@@ -12,7 +12,7 @@
 #
 # Synchronous. Request has NO fields — the tool takes no arguments ({}).
 [contract]
-id      = "robonix/skill/grasp/release"
+id      = "robonix/skill/jaka/grasp/release"
 version = "1"
 kind    = "skill"
 idl     = "jaka/srv/Release.srv"

@@ -1,7 +1,9 @@
 # skill-jaka-grasp-rbnx — JAKA Mini grab/release/home/place/pick skill (+ 固定抓取)
 
-Robonix skill for the fixed-base JAKA Mini + TG-9801 gripper. Six
-synchronous MCP tools:
+Robonix skill for the fixed-base JAKA Mini + TG-9801 gripper. Package
+`robonix.skill.jaka.grasp`, namespace `robonix/skill/jaka/grasp/*`, provider
+id `jaka`. Six synchronous MCP tools — the pilot exposes each as
+`{provider_id}.{area}_{leaf}` (e.g. `jaka.grasp_grab`):
 
 - `jaka_grab` — open gripper → hover → descend to the configured grasp pose
   → close gripper → settle → lift back to hover and hold. No perception;
@@ -71,8 +73,8 @@ the first tool call. Static checks after `bash start.sh`:
 
 ```bash
 rbnx caps -v                              # jaka [INACTIVE] until first call
-rbnx tools                                # jaka_grab / jaka_release / jaka_home / jaka_place / jaka_fixed_grasp / jaka_pick listed
-rbnx contracts -p robonix/skill/grasp
+rbnx tools                                # jaka.grasp_grab / jaka.grasp_release / jaka.grasp_home / jaka.grasp_place / jaka.grasp_fixed_grasp / jaka.grasp_pick listed
+rbnx contracts -p robonix/skill/jaka/grasp
 rbnx describe --provider jaka
 ```
 

@@ -4,8 +4,10 @@ description: JAKA Mini grab/release/home/place/pick skill (+ fixed_grasp, 固定
 
 # JAKA grab/release/home/place/pick skill (+ `fixed_grasp`)
 
-Provider id `jaka`, namespace `robonix/skill/grasp`. LLM tool names:
-`jaka_grab` / `jaka_release` / `jaka_home` / `jaka_place` / `jaka_fixed_grasp` / `jaka_pick`. The skill owns no hardware: arm
+Provider id `jaka`, namespace `robonix/skill/jaka/grasp`. LLM tool names are
+`{provider_id}.{area}_{leaf}` (pilot `discovery.rs::llm_name`): `jaka.grasp_grab` /
+`jaka.grasp_release` / `jaka.grasp_home` / `jaka.grasp_place` /
+`jaka.grasp_fixed_grasp` / `jaka.grasp_pick`. The skill owns no hardware: arm
 motion goes through the `jaka_arm` primitive's `pos_command` / `joint_command`
 contracts and the camera through `orbbec_camera`'s `camera/rgb`, all resolved
 by topic name via atlas — nothing is hard-coded.
@@ -24,12 +26,12 @@ by topic name via atlas — nothing is hard-coded.
 
 | contract | tool (pilot) | behaviour |
 |---|---|---|
-| `robonix/skill/grasp/grab` | `jaka_grab` | Open gripper in place → move to hover → descend to grasp → close gripper → settle → lift back to hover and hold. A failed lift is non-fatal (the object is already in the fingers). Poses from config; takes no arguments. |
-| `robonix/skill/grasp/release` | `jaka_release` | Open the gripper where the arm is — zero arm motion by construction (only `gripper_joint` is commanded; the provider back-fills the arm joints from its live feedback). Takes no arguments. |
-| `robonix/skill/grasp/home` | `jaka_home` | Return the arm to its initial posture — a joint-space move of the six arm joints to the configured `home_joints` (default all-zeros, the JAKA reference posture) via `joint_command`. The gripper is NOT commanded, so anything held stays held. Takes no arguments. |
-| `robonix/skill/grasp/place` | `jaka_place` | Set a held object down — by default IN PLACE (原地放下): the arm's current XY at `desktop_height` with `grasp_rpy`; at the configured `place_pose` instead when one is calibrated. Hover above the target (z + `travel_offset`), descend, open the gripper, lift back to hover. The gripper keeps holding until the bottom (unlike `release`, which lets go mid-air where the arm is). Takes no arguments. |
-| `robonix/skill/grasp/fixed_grasp` | `jaka_fixed_grasp` | Fixed-pose pick-and-place, 固定抓取 (demo): grasp half reuses grab's segment at the configured `fixed_grasp_pose`, then hover → descend → open → lift at the configured `fixed_place_pose`. Both poses are fixed config values; hovers are z + `travel_offset`. Takes no arguments. |
-| `robonix/skill/grasp/pick` | `jaka_pick` | Locate the named `object` with the camera (yolo11-obb or VLM backend, `detect_scheme`), map the bbox centre to arm base_link XY via the calibrated 2D homography, then run the same grasp segment as grab at `(x, y, desktop_height)` — on the yolo path with the gripper yaw aligned to the object's long edge. Takes one argument: `object` (the target description). |
+| `robonix/skill/jaka/grasp/grab` | `jaka.grasp_grab` | Open gripper in place → move to hover → descend to grasp → close gripper → settle → lift back to hover and hold. A failed lift is non-fatal (the object is already in the fingers). Poses from config; takes no arguments. |
+| `robonix/skill/jaka/grasp/release` | `jaka.grasp_release` | Open the gripper where the arm is — zero arm motion by construction (only `gripper_joint` is commanded; the provider back-fills the arm joints from its live feedback). Takes no arguments. |
+| `robonix/skill/jaka/grasp/home` | `jaka.grasp_home` | Return the arm to its initial posture — a joint-space move of the six arm joints to the configured `home_joints` (default all-zeros, the JAKA reference posture) via `joint_command`. The gripper is NOT commanded, so anything held stays held. Takes no arguments. |
+| `robonix/skill/jaka/grasp/place` | `jaka.grasp_place` | Set a held object down — by default IN PLACE (原地放下): the arm's current XY at `desktop_height` with `grasp_rpy`; at the configured `place_pose` instead when one is calibrated. Hover above the target (z + `travel_offset`), descend, open the gripper, lift back to hover. The gripper keeps holding until the bottom (unlike `release`, which lets go mid-air where the arm is). Takes no arguments. |
+| `robonix/skill/jaka/grasp/fixed_grasp` | `jaka.grasp_fixed_grasp` | Fixed-pose pick-and-place, 固定抓取 (demo): grasp half reuses grab's segment at the configured `fixed_grasp_pose`, then hover → descend → open → lift at the configured `fixed_place_pose`. Both poses are fixed config values; hovers are z + `travel_offset`. Takes no arguments. |
+| `robonix/skill/jaka/grasp/pick` | `jaka.grasp_pick` | Locate the named `object` with the camera (yolo11-obb or VLM backend, `detect_scheme`), map the bbox centre to arm base_link XY via the calibrated 2D homography, then run the same grasp segment as grab at `(x, y, desktop_height)` — on the yolo path with the gripper yaw aligned to the object's long edge. Takes one argument: `object` (the target description). |
 
 All tools are synchronous (block until done). `grab` / `release` / `home` /
 `place` / `fixed_grasp` take no arguments; `pick` takes `object`. `place`
