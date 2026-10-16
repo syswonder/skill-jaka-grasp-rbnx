@@ -1,4 +1,4 @@
-# robonix/skill/jaka/fixed_grasp — fixed-pose pick-and-place (demo).
+# robonix/skill/grasp/fixed_grasp — fixed-pose pick-and-place (demo).
 #
 # User-invocable atomic intent: "固定抓取". Picks the demo object up at
 # the configured `fixed_grasp_pose` and sets it down at the configured
@@ -19,7 +19,7 @@
 #
 # Synchronous. Request has NO fields — the tool takes no arguments ({}).
 [contract]
-id      = "robonix/skill/jaka/fixed_grasp"
+id      = "robonix/skill/grasp/fixed_grasp"
 version = "1"
 kind    = "skill"
 idl     = "jaka/srv/FixedGrasp.srv"

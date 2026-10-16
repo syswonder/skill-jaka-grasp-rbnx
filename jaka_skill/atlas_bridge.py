@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """jaka_skill — minimal grab/release skill for the JAKA Mini.
 
-Owns `robonix/skill/jaka/*`. No perception, no upstream gRPC services:
+Owns `robonix/skill/grasp/*`. No perception, no upstream gRPC services:
 both tools drive the `jaka_arm` primitive through its ROS 2 contracts
 (pos_command / joint_command), resolved by topic name via atlas — the
 skill hard-codes nothing.
@@ -50,7 +50,7 @@ log = logging.getLogger("jaka_skill")
 # (rbnx passes it as RBNX_INSTANCE_NAME, same as jaka_arm).
 jaka_skill = Skill(
     id=os.environ.get("RBNX_INSTANCE_NAME", "jaka"),
-    namespace="robonix/skill/jaka",
+    namespace="robonix/skill/grasp",
 )
 
 _PRIMITIVE_TOPICS = {
@@ -477,7 +477,7 @@ def _run_fixed_grasp(arm: Arm, cfg: SkillConfig) -> str:
 
 # ── MCP tools ───────────────────────────────────────────────────────────────
 
-@jaka_skill.mcp("robonix/skill/jaka/grab")
+@jaka_skill.mcp("robonix/skill/grasp/grab")
 def grab(_req: Grab_Request) -> Grab_Response:
     """Grab whatever sits between the gripper fingers at the configured
     grasp pose. NO camera, NO object detection: the hover and grasp poses
@@ -500,7 +500,7 @@ def grab(_req: Grab_Request) -> Grab_Response:
                          elapsed_s=time.monotonic() - t0)
 
 
-@jaka_skill.mcp("robonix/skill/jaka/release")
+@jaka_skill.mcp("robonix/skill/grasp/release")
 def release(_req: Release_Request) -> Release_Response:
     """Open the gripper WHERE THE ARM IS — zero arm motion. Use this when
     the user says "release / let go here / 松开 / 松手" and the arm must
@@ -521,7 +521,7 @@ def release(_req: Release_Request) -> Release_Response:
                             elapsed_s=time.monotonic() - t0)
 
 
-@jaka_skill.mcp("robonix/skill/jaka/home")
+@jaka_skill.mcp("robonix/skill/grasp/home")
 def home(_req: Home_Request) -> Home_Response:
     """Return the arm to its home (initial) posture. Use this when the user
     says "home / reset / 复位 / 回零 / 回到初始位置" and the arm should go
@@ -543,7 +543,7 @@ def home(_req: Home_Request) -> Home_Response:
                          elapsed_s=time.monotonic() - t0)
 
 
-@jaka_skill.mcp("robonix/skill/jaka/place")
+@jaka_skill.mcp("robonix/skill/grasp/place")
 def place(_req: Place_Request) -> Place_Response:
     """Set the held object down. Use this when the user says "place it /
     put it down / 放下 / 放置" and the arm is holding something. WHERE is
@@ -565,7 +565,7 @@ def place(_req: Place_Request) -> Place_Response:
         raise RuntimeError(f"place failed: {exc}") from exc
     return Place_Response(success=True, message=message,
                           elapsed_s=time.monotonic() - t0)
-@jaka_skill.mcp("robonix/skill/jaka/fixed_grasp")
+@jaka_skill.mcp("robonix/skill/grasp/fixed_grasp")
 def fixed_grasp(_req: FixedGrasp_Request) -> FixedGrasp_Response:
     """Pick the demo object up from the fixed configured pickup position
     and set it down at the fixed configured place position. Use this when
@@ -594,7 +594,7 @@ def fixed_grasp(_req: FixedGrasp_Request) -> FixedGrasp_Response:
                                elapsed_s=time.monotonic() - t0)
 
 
-@jaka_skill.mcp("robonix/skill/jaka/pick")
+@jaka_skill.mcp("robonix/skill/grasp/pick")
 def pick(req: Pick_Request) -> Pick_Response:
     """Locate a named object with the camera and grasp it. Use this when the
     user asks to pick up a specific object ("pick up the red block / 抓起螺丝

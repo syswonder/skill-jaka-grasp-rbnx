@@ -1,4 +1,4 @@
-# robonix/skill/jaka/grab — descend onto the configured grasp pose, close the
+# robonix/skill/grasp/grab — descend onto the configured grasp pose, close the
 # gripper, lift back to the configured hover pose.
 #
 # User-invocable atomic intent: "grab / 抓". NO camera, NO object detection —
@@ -10,7 +10,7 @@
 # Synchronous: blocks until every waypoint converges or a timeout fires.
 # Request has NO fields — the tool takes no arguments ({}).
 [contract]
-id      = "robonix/skill/jaka/grab"
+id      = "robonix/skill/grasp/grab"
 version = "1"
 kind    = "skill"
 idl     = "jaka/srv/Grab.srv"

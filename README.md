@@ -1,4 +1,4 @@
-# skill-jaka-rbnx — JAKA Mini grab/release/home/place/pick skill (+ 固定抓取)
+# skill-jaka-grasp-rbnx — JAKA Mini grab/release/home/place/pick skill (+ 固定抓取)
 
 Robonix skill for the fixed-base JAKA Mini + TG-9801 gripper. Six
 synchronous MCP tools:
@@ -32,7 +32,7 @@ frames, units and known limitations.
 ## Running the 固定抓取 demo
 
 1. This repo checked out on `demo` (the deploy's local manifest points at
-   `../skill-jaka-rbnx`, so whatever branch is checked out is what boots).
+   `../skill-jaka-grasp-rbnx`, so whatever branch is checked out is what boots).
 2. Lower the grip for the fragile demo object (a raw egg) in the deploy
    manifest's `jaka_arm` config: `gripper_force: 20` (0-100 scale, applied
    once at connect — the skill cannot change it per call; verify on the
@@ -51,7 +51,7 @@ frames, units and known limitations.
 ## Build
 
 ```bash
-rbnx build -p ../skill-jaka-rbnx        # from the deploy repo
+rbnx build -p ../skill-jaka-grasp-rbnx  # from the deploy repo
 # or standalone:
 bash scripts/build.sh
 ```
@@ -72,7 +72,7 @@ the first tool call. Static checks after `bash start.sh`:
 ```bash
 rbnx caps -v                              # jaka [INACTIVE] until first call
 rbnx tools                                # jaka_grab / jaka_release / jaka_home / jaka_place / jaka_fixed_grasp / jaka_pick listed
-rbnx contracts -p robonix/skill/jaka
+rbnx contracts -p robonix/skill/grasp
 rbnx describe --provider jaka
 ```
 

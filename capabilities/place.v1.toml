@@ -1,4 +1,4 @@
-# robonix/skill/jaka/place — set a held object down.
+# robonix/skill/grasp/place — set a held object down.
 #
 # User-invocable atomic intent: "place / put it down / 放下 / 放置". Where
 # is config-driven: with no `place_pose` calibrated (default) the object
@@ -14,7 +14,7 @@
 #
 # Synchronous. Request has NO fields — the tool takes no arguments ({}).
 [contract]
-id      = "robonix/skill/jaka/place"
+id      = "robonix/skill/grasp/place"
 version = "1"
 kind    = "skill"
 idl     = "jaka/srv/Place.srv"

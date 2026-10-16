@@ -1,4 +1,4 @@
-# robonix/skill/jaka/pick — locate a named object with the camera and grasp it.
+# robonix/skill/grasp/pick — locate a named object with the camera and grasp it.
 #
 # User-invocable atomic intent: "pick up the X / 抓起 X". UNLIKE grab, the
 # grasp XY is computed from perception, not the deploy config: resolve
@@ -15,7 +15,7 @@
 # Request has ONE field: `object` — the target description, forwarded to the
 # VLM locator verbatim.
 [contract]
-id      = "robonix/skill/jaka/pick"
+id      = "robonix/skill/grasp/pick"
 version = "1"
 kind    = "skill"
 idl     = "jaka/srv/Pick.srv"

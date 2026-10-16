@@ -1,4 +1,4 @@
-# robonix/skill/jaka/home — return the arm to its initial (home) posture.
+# robonix/skill/grasp/home — return the arm to its initial (home) posture.
 #
 # User-invocable atomic intent: "home / reset / 复位 / 回零 / 回到初始位置".
 # A JOINT-SPACE move of the six arm joints to the configured `home_joints`
@@ -11,7 +11,7 @@
 # Synchronous: blocks until every joint converges or a timeout fires.
 # Request has NO fields — the tool takes no arguments ({}).
 [contract]
-id      = "robonix/skill/jaka/home"
+id      = "robonix/skill/grasp/home"
 version = "1"
 kind    = "skill"
 idl     = "jaka/srv/Home.srv"

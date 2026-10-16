@@ -5,9 +5,9 @@ build: bash scripts/build.sh
 start: bash scripts/start.sh
 
 package:
-  name: "robonix.skill.jaka"
+  name: "robonix.skill.grasp"
   version: 0.1.0
-  description: "JAKA Mini grab/release/home/place + camera-driven pick skill; demo branch adds fixed-pose pick-and-place (固定抓取)."
+  description: "Grab/release/home/place + camera-driven pick skill for the fixed-base JAKA Mini; demo branch adds fixed-pose pick-and-place (固定抓取)."
   tags:
     - skill
     - jaka
@@ -18,17 +18,17 @@ package:
   license: Apache-2.0
 
 capabilities:
-  - name: robonix/skill/jaka/grab
+  - name: robonix/skill/grasp/grab
     path: capabilities/grab.v1.toml
-  - name: robonix/skill/jaka/release
+  - name: robonix/skill/grasp/release
     path: capabilities/release.v1.toml
-  - name: robonix/skill/jaka/home
+  - name: robonix/skill/grasp/home
     path: capabilities/home.v1.toml
-  - name: robonix/skill/jaka/place
+  - name: robonix/skill/grasp/place
     path: capabilities/place.v1.toml
-  - name: robonix/skill/jaka/fixed_grasp
+  - name: robonix/skill/grasp/fixed_grasp
     path: capabilities/fixed_grasp.v1.toml
-  - name: robonix/skill/jaka/pick
+  - name: robonix/skill/grasp/pick
     path: capabilities/pick.v1.toml
 
 depends: []
