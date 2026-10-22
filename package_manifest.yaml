@@ -5,7 +5,7 @@ build: bash scripts/build.sh
 start: bash scripts/start.sh
 
 package:
-  name: "robonix.skill.jaka"
+  name: "robonix.skill.jaka_grasp"
   version: 0.1.0
   description: "JAKA Mini grab/release/home/place + camera-driven pick skill for both the TG-9801 gripper and the LinkerHand O6 hand bodies; includes fixed-pose pick-and-place (固定抓取)."
   tags:
