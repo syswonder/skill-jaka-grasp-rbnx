@@ -21,11 +21,15 @@ from typing import Optional
 from geometry_msgs.msg import Pose
 from sensor_msgs.msg import JointState
 
+from .feedback import (
+    GRIPPER_JOINT_NAME,
+    GRIPPER_STROKE_M,
+    width_from_joint_state,
+)
+
 log = logging.getLogger("jaka_skill")
 
 JOINT_NAMES = [f"joint_{i}" for i in range(1, 7)]
-GRIPPER_JOINT_NAME = "gripper_joint"
-GRIPPER_STROKE_M = 0.098        # TG-9801 stroke, matches the provider
 # Binary open/closed split of the adaptive grip (provider set_gripper_open_m:
 # >= half stroke = release, else grip). A *command* threshold, not a
 # grasp-verdict one.
@@ -229,11 +233,15 @@ class Arm:
             if joints:
                 self._joints = joints
                 self._joints_mono = time.monotonic()
-            if GRIPPER_JOINT_NAME in idx:
-                g = msg.position[idx[GRIPPER_JOINT_NAME]]
-                if math.isfinite(g):
-                    self._gripper_m = float(g)
-                    self._gripper_mono = time.monotonic()
+            # Feedback source is chosen per sample, not per deployment:
+            # a gripper body publishes `gripper_joint` (real width), a
+            # hand body publishes the O6 hand joints (width reconstructed
+            # from the grasp fingers). Both map onto the same width-like
+            # scale, so the verdict thresholds are shared.
+            width = width_from_joint_state(msg.name, msg.position)
+            if width is not None:
+                self._gripper_m = width
+                self._gripper_mono = time.monotonic()
 
     # ── feedback accessors ────────────────────────────────────────────────
 

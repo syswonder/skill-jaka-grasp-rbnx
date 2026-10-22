@@ -1,7 +1,12 @@
 # skill-jaka-rbnx — JAKA Mini grab/release/home/place/pick skill (+ 固定抓取)
 
-Robonix skill for the fixed-base JAKA Mini + TG-9801 gripper. Six
-synchronous MCP tools:
+Robonix skill for the fixed-base JAKA Mini, usable with **either** body
+deployment — JAKA Mini + TG-9801 gripper or JAKA Mini + LinkerHand O6 hand —
+from this one package. The end-effector feedback source is detected per
+`joint_states` sample: a real `gripper_joint` width when present (gripper
+body), otherwise the O6 hand joints are mapped onto the same width-like
+scale (hand body). Commands stay `gripper_joint` in both cases; the primitive
+translates them. Six synchronous MCP tools:
 
 - `jaka_grab` — open gripper → hover → descend to the configured grasp pose
   → close gripper → settle → lift back to hover and hold. No perception;
@@ -28,6 +33,27 @@ synchronous MCP tools:
 Everything is driven through the `jaka_arm` primitive's ROS 2 contracts
 (`pos_command` / `joint_command`), resolved via atlas. See CAPABILITY.md for
 frames, units and known limitations.
+
+## End-effector compatibility
+
+Two body deployments, one skill:
+
+| body | `joint_states` feedback | skill behaviour |
+|---|---|---|
+| JAKA Mini + TG-9801 | `joint_states` carries `gripper_joint` (m) | width read directly; empty-grasp / open verdicts use the TG stroke (0.098 m) |
+| JAKA Mini + LinkerHand O6 | `joint_states` carries the six O6 hand joints (rad), no `gripper_joint` | width reconstructed from thumb/index/middle/ring flexion, anchored on the measured O6 open/empty-close poses (see `feedback.py`); the same 0.098 m scale and verdict thresholds apply |
+
+Detection is per sample (`feedback.width_from_joint_state`), so the same
+skill package and the same `main` branch run against either primitive; no
+config key selects the mode. Everything else is deployment config: the
+poses/heights are body-specific (TG 0.125/0.275 m, O6 0.14/0.29 m in the
+respective deploy manifests), and `gripper_settle_s` is longer for the O6.
+
+Caveat: the O6 link drops answers that read as fully flexed, and the
+reconstruction cannot distinguish that from a real close in a single
+sample. The verdict already requires two settled samples
+(`GRASP_VERIFY_TIMEOUT_S`), but a lost-answer cluster can still look like an
+empty close; observe the hand for critical grasps.
 
 ## Running the 固定抓取 demo
 

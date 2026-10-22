@@ -16,10 +16,10 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from .feedback import GRIPPER_STROKE_M
+
 LOG_PREFIX = "[jaka_skill]"
 
-# Must match primitive-jaka-rbnx/jaka_arm/driver.py constants.
-GRIPPER_STROKE_M = 0.098
 GRIPPER_OPEN_THRESHOLD_M = 0.5 * GRIPPER_STROKE_M
 
 

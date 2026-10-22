@@ -5,15 +5,29 @@ config:
   # immune to a second arm appearing in the manifest.
   arm_provider_id: jaka_arm
 
+  # ── end-effector feedback (no config key) ──────────────────────────────
+  # The same skill runs with a TG-9801 gripper body or a LinkerHand O6 hand
+  # body. Feedback is selected per `joint_states` sample:
+  #   - a `gripper_joint` position (m) is used as the width directly;
+  #   - otherwise the O6 hand joints are mapped onto the same 0.098 m
+  #     width scale from thumb/index/middle/ring flexion (measured open
+  #     0.923 / empty-close 0.119 anchors), so every verdict threshold
+  #     below keeps its meaning.
+  # The heights/poses are BODY-SPECIFIC and live in each deploy manifest:
+  # TG-9801 0.125 m grasp / 0.275 m hover; O6 0.14 m grasp / 0.29 m hover
+  # (pick travel 0.08). The defaults below are the TG-9801 values.
+
   # list of 6 floats, REQUIRED, no default. [x, y, z, rx, ry, rz].
   # METRES + RADIANS, in the same base frame and units as jaka_arm's
   # end_pose / pos_command. RPY uses the controller's fixed-XYZ convention
   # (the skill converts to a quaternion with the exact inverse of the
   # provider's quat->RPY step).
-  # Height model for this deploy (from AIIT-Roboarm/config.yaml, same
+  # Height model defaults (TG-9801 body, from AIIT-Roboarm/config.yaml, same
   # controller and base frame):
   #   hover z  = default_desktop_height + catch_raise_height = 0.125 + 0.15
   #   grasp z  = default_desktop_height = 0.125
+  # The O6 hand body overrides these in its deploy manifest (0.29 / 0.14,
+  # pick travel 0.08) because its palm is longer and reaches lower.
   hover_pose: [0.20, 0.00, 0.275, 3.14159265, 0.0, 0.0]
   grasp_pose: [0.20, 0.00, 0.125, 3.14159265, 0.0, 0.0]
 
