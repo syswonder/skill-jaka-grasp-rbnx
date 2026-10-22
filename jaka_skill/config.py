@@ -213,6 +213,10 @@ def _angles6(cfg: dict, key: str, default: list[float]) -> list[float]:
 @dataclass
 class SkillConfig:
     arm_provider_id: str = "jaka_arm"
+    # REQUIRED in the deploy manifest (`gripper` or `hand`): which body the
+    # skill is driving. No auto-detection — a wrong mode would silently read
+    # the wrong feedback; a missing/invalid value is a config_error.
+    end_effector: str = "gripper"
     hover_pose: Optional[list[float]] = None
     grasp_pose: Optional[list[float]] = None
     gripper_open_m: float = 0.098
@@ -317,8 +321,11 @@ class SkillConfig:
             print(f"{LOG_PREFIX} config topics: expected a map; ignored",
                   flush=True)
 
+        end_effector = str(cfg.get("end_effector", "")).strip().lower()
         parsed = cls(
             arm_provider_id=_text(cfg, "arm_provider_id", "jaka_arm"),
+            end_effector=(end_effector if end_effector in ("gripper", "hand")
+                          else "gripper"),
             hover_pose=_pose6(cfg, "hover_pose"),
             grasp_pose=_pose6(cfg, "grasp_pose"),
             gripper_open_m=_num(cfg, "gripper_open_m", 0.098,
@@ -373,6 +380,10 @@ class SkillConfig:
         )
 
         errors: list[str] = []
+        if end_effector not in ("gripper", "hand"):
+            errors.append(
+                "end_effector missing or not gripper|hand — set it in the "
+                "deploy manifest's skill.jaka.config")
         if parsed.hover_pose is None:
             errors.append("hover_pose missing or not [x, y, z, rx, ry, rz]")
         if parsed.grasp_pose is None:

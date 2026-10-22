@@ -9,11 +9,12 @@ The same skill package runs against two body deployments:
   * JAKA Mini + LinkerHand O6 hand — the primitive publishes the six O6
     hand joints (rad, URDF convention) and no `gripper_joint`.
 
-`width_from_joint_state` picks whichever is present and returns a
-width-like opening in metres, so every existing grasp-verdict threshold
-keeps its meaning without a per-deployment skill branch. `gripper_joint`
-wins when both are present (a gripper deployment that also mirrors hand
-joints still reports its real width).
+`width_from_joint_state` is told which body it is running against by the
+deploy manifest's required `end_effector: gripper|hand` skill config and
+returns a width-like opening in metres, so every existing grasp-verdict
+threshold keeps its meaning without a per-deployment skill branch. There is
+no auto-detection: an explicit mode makes a wrong manifest loud (the skill
+reports a config error) instead of silently reading the wrong feedback.
 
 The hand reconstruction is deliberately hardware-specific: it uses the
 LinkerHand O6 joint names and URDF upper limits, plus anchors measured on
@@ -86,23 +87,31 @@ def hand_width_m(openness: float, stroke_m: float = GRIPPER_STROKE_M) -> float:
 
 
 def width_from_joint_state(
-    names, positions, stroke_m: float = GRIPPER_STROKE_M
+    names, positions, end_effector: str, stroke_m: float = GRIPPER_STROKE_M
 ):
     """Width-like opening (m) from one joint_states sample, or None.
 
-    Gripper deployments: the `gripper_joint` position (m) as-is.
-    Hand deployments: the O6 grasp fingers reconstructed through
-    `hand_openness` + `hand_width_m`.
-    Neither (arm-only feedback): None, so the caller keeps its last value.
+    `end_effector` is the deploy manifest's explicit `gripper` or `hand`:
+
+    * `gripper` — the `gripper_joint` position (m) as-is; hand joints are
+      ignored (a wrong manifest yields no width rather than a false one);
+    * `hand` — the O6 grasp fingers reconstructed through `hand_openness` +
+      `hand_width_m`; a stray `gripper_joint` is ignored.
+
+    Anything else (including arm-only feedback) returns None, so the caller
+    keeps its last width. The configured mode is validated at config parse
+    time; this function only refuses unknown values.
     """
     idx = {name: i for i, name in enumerate(names)}
-    gripper_i = idx.get(GRIPPER_JOINT_NAME)
-    if gripper_i is not None and gripper_i < len(positions):
+    if end_effector == "gripper":
+        gripper_i = idx.get(GRIPPER_JOINT_NAME)
+        if gripper_i is None or gripper_i >= len(positions):
+            return None
         value = positions[gripper_i]
-        if _finite(value):
-            return float(value)
-        return None
-    openness = hand_openness(names, positions)
-    if openness is None:
-        return None
-    return hand_width_m(openness, stroke_m)
+        return float(value) if _finite(value) else None
+    if end_effector == "hand":
+        openness = hand_openness(names, positions)
+        if openness is None:
+            return None
+        return hand_width_m(openness, stroke_m)
+    return None

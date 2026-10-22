@@ -2,10 +2,10 @@
 
 Robonix skill for the fixed-base JAKA Mini, usable with **either** body
 deployment — JAKA Mini + TG-9801 gripper or JAKA Mini + LinkerHand O6 hand —
-from this one package. The end-effector feedback source is detected per
-`joint_states` sample: a real `gripper_joint` width when present (gripper
-body), otherwise the O6 hand joints are mapped onto the same width-like
-scale (hand body). Commands stay `gripper_joint` in both cases; the primitive
+from this one package. Each deploy manifest declares its body with the
+required skill config `end_effector: gripper|hand`; the skill then reads the
+matching feedback (gripper_joint width, or a width reconstructed from the O6
+hand joints). Commands stay `gripper_joint` in both cases; the primitive
 translates them. Six synchronous MCP tools:
 
 - `jaka_grab` — open gripper → hover → descend to the configured grasp pose
@@ -36,18 +36,28 @@ frames, units and known limitations.
 
 ## End-effector compatibility
 
-Two body deployments, one skill:
+Two body deployments, one skill, selected by the **required** deploy-manifest
+config key:
 
-| body | `joint_states` feedback | skill behaviour |
-|---|---|---|
-| JAKA Mini + TG-9801 | `joint_states` carries `gripper_joint` (m) | width read directly; empty-grasp / open verdicts use the TG stroke (0.098 m) |
-| JAKA Mini + LinkerHand O6 | `joint_states` carries the six O6 hand joints (rad), no `gripper_joint` | width reconstructed from thumb/index/middle/ring flexion, anchored on the measured O6 open/empty-close poses (see `feedback.py`); the same 0.098 m scale and verdict thresholds apply |
+```yaml
+skill:
+  - name: jaka
+    config:
+      end_effector: hand      # gripper | hand — required, no auto mode
+```
 
-Detection is per sample (`feedback.width_from_joint_state`), so the same
-skill package and the same `main` branch run against either primitive; no
-config key selects the mode. Everything else is deployment config: the
-poses/heights are body-specific (TG 0.125/0.275 m, O6 0.14/0.29 m in the
-respective deploy manifests), and `gripper_settle_s` is longer for the O6.
+| `end_effector` | body | `joint_states` feedback | skill behaviour |
+|---|---|---|---|
+| `gripper` | JAKA Mini + TG-9801 | `gripper_joint` (m) | width read directly; empty-grasp / open verdicts use the TG stroke (0.098 m) |
+| `hand` | JAKA Mini + LinkerHand O6 | six O6 hand joints (rad), no `gripper_joint` | width reconstructed from thumb/index/middle/ring flexion, anchored on the measured O6 open/empty-close poses (see `feedback.py`); the same 0.098 m scale and verdict thresholds apply |
+
+There is deliberately no auto-detection: a missing or invalid
+`end_effector` is a config error (tools report it) instead of silently
+reading the wrong feedback. In `gripper` mode hand joints are ignored; in
+`hand` mode a stray `gripper_joint` is ignored. Everything else is still
+deployment config: the poses/heights are body-specific (TG 0.125/0.275 m,
+O6 0.14/0.29 m in the respective deploy manifests), and `gripper_settle_s`
+is longer for the O6.
 
 Caveat: the O6 link drops answers that read as fully flexed, and the
 reconstruction cannot distinguish that from a real close in a single

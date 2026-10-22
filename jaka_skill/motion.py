@@ -107,6 +107,10 @@ class Arm:
 
     def __init__(self, cfg, frames=None) -> None:
         self.cfg = cfg
+        # Explicit body from the deploy manifest (`gripper` | `hand`); the
+        # config parser rejects a missing/unknown value before tools run.
+        # The fallback only serves direct construction in tests/tools.
+        self._end_effector = getattr(cfg, "end_effector", "gripper")
         # Optional camera frame cache (pick path). Subscribed on the same ROS
         # bridge node so frames and arm feedback share one executor.
         self.frames = frames
@@ -238,7 +242,8 @@ class Arm:
             # hand body publishes the O6 hand joints (width reconstructed
             # from the grasp fingers). Both map onto the same width-like
             # scale, so the verdict thresholds are shared.
-            width = width_from_joint_state(msg.name, msg.position)
+            width = width_from_joint_state(
+                msg.name, msg.position, self._end_effector)
             if width is not None:
                 self._gripper_m = width
                 self._gripper_mono = time.monotonic()

@@ -19,15 +19,17 @@ by topic name via atlas — nothing is hard-coded.
 - Gripper values are metres of opening: `0.098` = fully open, `0.0` =
   closed. The TG-9801 adapter is binary: `>= 0.049` releases, below grips
   adaptively with the force configured in `jaka_arm`.
-- The skill runs against two bodies with this same interface. Feedback is
-  chosen per `joint_states` sample: a `gripper_joint` position is used as the
-  width directly (gripper body); when it is absent, the LinkerHand O6 hand
-  joints are mapped onto the same width scale (hand body, see
+- The skill runs against two bodies with this same interface. The deploy
+  manifest MUST set `end_effector: gripper|hand` (required; no auto mode).
+  `gripper` reads the `gripper_joint` position directly; `hand` maps the
+  LinkerHand O6 hand joints onto the same width scale (see
   `jaka_skill/feedback.py`). The O6 open pose reads 0.923 mean grasp-finger
   openness and an empty close 0.119; those anchors make the existing
-  thresholds meaningful without a per-body skill branch. Commands are
-  unchanged: `gripper_joint` publishes route to the primitive, which maps
-  them to release/grip (gripper) or open/full-grasp (hand).
+  thresholds meaningful without a per-body skill branch. With `hand`, a
+  stray `gripper_joint` is ignored; with `gripper`, hand joints are ignored.
+  A missing/invalid `end_effector` is a config error surfaced on tool calls.
+  Commands are unchanged: `gripper_joint` publishes route to the primitive,
+  which maps them to release/grip (gripper) or open/full-grasp (hand).
 - O6 caveat: a lost RS485 answer reads as fully flexed. The verdict samples
   must be two settled readings, but a lost-answer cluster can still look
   like an empty close; do not treat one sweep as proof.

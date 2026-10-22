@@ -5,14 +5,18 @@ config:
   # immune to a second arm appearing in the manifest.
   arm_provider_id: jaka_arm
 
-  # ── end-effector feedback (no config key) ──────────────────────────────
-  # The same skill runs with a TG-9801 gripper body or a LinkerHand O6 hand
-  # body. Feedback is selected per `joint_states` sample:
-  #   - a `gripper_joint` position (m) is used as the width directly;
-  #   - otherwise the O6 hand joints are mapped onto the same 0.098 m
-  #     width scale from thumb/index/middle/ring flexion (measured open
-  #     0.923 / empty-close 0.119 anchors), so every verdict threshold
-  #     below keeps its meaning.
+  # ── end effector (REQUIRED) ─────────────────────────────────────────────
+  # string, gripper|hand, no default — the deploy manifest must set it.
+  #   gripper - TG-9801 body: feedback is the `gripper_joint` position (m);
+  #             hand joints are ignored.
+  #   hand    - LinkerHand O6 body: feedback is a width-like opening
+  #             reconstructed from thumb/index/middle/ring flexion (measured
+  #             open 0.923 / empty-close 0.119 anchors) on the same 0.098 m
+  #             scale; a stray `gripper_joint` is ignored.
+  # There is no auto mode: a wrong end effector would silently read the
+  # wrong feedback, so a missing/invalid value is a config error surfaced
+  # on every tool call instead.
+  # end_effector: gripper
   # The heights/poses are BODY-SPECIFIC and live in each deploy manifest:
   # TG-9801 0.125 m grasp / 0.275 m hover; O6 0.14 m grasp / 0.29 m hover
   # (pick travel 0.08). The defaults below are the TG-9801 values.
