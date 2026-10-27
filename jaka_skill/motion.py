@@ -8,7 +8,7 @@ atlas. No gRPC, no arm_status polling: jaka_arm executes motion
 synchronously inside its own command worker, so "motion done" is detected
 by watching /jaka/end_pose converge on the commanded pose — the same 2 mm
 reach check the provider itself uses
-(primitive-jaka-rbnx/jaka_arm/driver.py `_wait_pose_reached`).
+(the arm primitive's jaka_arm/driver.py `_wait_pose_reached`).
 """
 from __future__ import annotations
 

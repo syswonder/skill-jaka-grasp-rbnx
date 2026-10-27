@@ -8,7 +8,7 @@ ROS_SETUP="${RBNX_ROS_SETUP:-/opt/ros/humble/setup.bash}"
 # no colcon workspace of our own. The skill is pure Python and talks to the
 # jaka_arm primitive exclusively through ROS 2 topics it resolves via atlas.
 #
-# Self-contained by design (mirrors primitive-jaka-rbnx/scripts/build.sh):
+# Self-contained by design (mirrors the jaka arm primitives' scripts/build.sh):
 # the venv is created here with --system-site-packages (rclpy / cv2 / numpy
 # from the system installs stay visible) and doubles as the codegen
 # interpreter, so the generated stubs and the runtime protobuf always agree.
@@ -17,7 +17,7 @@ ROS_SETUP="${RBNX_ROS_SETUP:-/opt/ros/humble/setup.bash}"
 # manifest's "${PWD}/.venv" expands against the console's PWD, not the
 # deployment directory).
 #
-# Outputs (mirrors primitive-jaka-rbnx/scripts/build.sh):
+# Outputs (mirrors the jaka arm primitives' scripts/build.sh):
 #   proto_gen / robonix_mcp_types  — framework protos + jaka_mcp dataclasses
 #   codegen/ros2_idl (colcon)      — sensor_msgs / geometry_msgs overlay;
 #   on this host /opt/ros/humble alone does not put those on the python

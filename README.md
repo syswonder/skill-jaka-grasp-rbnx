@@ -1,4 +1,4 @@
-# skill-jaka-rbnx — JAKA Mini grab/release/home/place/pick skill (+ 固定抓取)
+# skill-jaka-grasp-rbnx — JAKA Mini grab/release/home/place/pick skill (+ 固定抓取)
 
 Robonix skill for the fixed-base JAKA Mini, usable with **either** body
 deployment — JAKA Mini + TG-9801 gripper or JAKA Mini + LinkerHand O6 hand —
@@ -68,7 +68,7 @@ empty close; observe the hand for critical grasps.
 ## Running the 固定抓取 demo
 
 1. This repo checked out on `demo` (the deploy's local manifest points at
-   `../skill-jaka-rbnx`, so whatever branch is checked out is what boots).
+   `../skill-jaka-grasp-rbnx`, so whatever branch is checked out is what boots).
 2. Lower the grip for the fragile demo object (a raw egg) in the deploy
    manifest's `jaka_arm` config: `gripper_force: 20` (0-100 scale, applied
    once at connect — the skill cannot change it per call; verify on the
@@ -87,7 +87,7 @@ empty close; observe the hand for critical grasps.
 ## Build
 
 ```bash
-rbnx build -p ../skill-jaka-rbnx        # from the deploy repo
+rbnx build -p ../skill-jaka-grasp-rbnx        # from the deploy repo
 # or standalone:
 bash scripts/build.sh
 ```
