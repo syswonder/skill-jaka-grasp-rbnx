@@ -19,16 +19,22 @@ package:
 
 capabilities:
   - name: robonix/skill/jaka/grab
+    transport: mcp
     path: capabilities/grab.v1.toml
   - name: robonix/skill/jaka/release
+    transport: mcp
     path: capabilities/release.v1.toml
   - name: robonix/skill/jaka/home
+    transport: mcp
     path: capabilities/home.v1.toml
   - name: robonix/skill/jaka/place
+    transport: mcp
     path: capabilities/place.v1.toml
   - name: robonix/skill/jaka/fixed_grasp
+    transport: mcp
     path: capabilities/fixed_grasp.v1.toml
   - name: robonix/skill/jaka/pick
+    transport: mcp
     path: capabilities/pick.v1.toml
 
 depends: []
