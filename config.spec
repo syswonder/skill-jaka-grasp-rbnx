@@ -107,6 +107,14 @@ config:
   # hover above the place pose -> descend -> open the gripper -> lift;
   # the gripper keeps holding until the bottom.
   #
+  # The TOOL takes the target as either x, y (metres, arm base frame) or
+  # u, v (pixel in the camera's 1280×720 raw RGB frame); either pair wins
+  # over this key. 0/0 in a pair means "that pair not given"; all four 0
+  # falls through to the configured place_pose, then to in-place. The pixel
+  # pair needs camera_matrix + dist_coeffs (undistort) + homography_matrix
+  # (projection) — all three below/in the pick block; it never reads the
+  # camera stream, so it works with the camera offline.
+  #
   # DEFAULT (key unset): place in place (原地放下) — the object is set down
   # right below where the arm holds it: current XY from end_pose at
   # desktop_height, orientation grasp_rpy. No calibration needed beyond
@@ -115,6 +123,7 @@ config:
   # list of 6 floats, OPTIONAL, default: unset (in-place place). [x, y, z,
   # rx, ry, rz] — metres + RADIANS, same frame/units as hover_pose/
   # grasp_pose: carry the held object to this pose and set it down there.
+  # Only used when the tool call carries no target (both pairs 0).
   # Hover is derived as z + travel_offset (the pick height model — mind
   # travel_offset's reach note: on this arm the hover must stay inside the
   # reachable envelope at that radial).
@@ -182,7 +191,12 @@ config:
   # grasp_rpy: [3.14159265, 0.0, 0.0]
 
   # ─────────────── detection backend ───────────────
-  # string, "vlm" | "yolo", default: vlm. Which detector `pick` uses.
+  # string, "vlm" | "yolo" | "auto", default: vlm. Which detector `pick` uses.
+  # "auto" routes per request: a name the loaded yolo weights cover (alias
+  # map + the weights' own class names, substring either way) goes to yolo,
+  # everything else goes to the VLM. A yolo miss is NOT retried through the
+  # VLM, so "not on the table" stays an honest answer. Unloadable weights
+  # degrade to the VLM instead of failing the pick.
   detect_scheme: vlm
 
   # string, REQUIRED for pick when detect_scheme=yolo. Path to a trained

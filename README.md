@@ -15,17 +15,21 @@ translates them. Six synchronous MCP tools:
 - `jaka_home` — return the arm to its initial posture (复位): a joint-space
   move of the six arm joints to the configured `home_joints` (default
   all-zeros, the JAKA reference posture). The gripper is not commanded.
-- `jaka_place` — set a held object down (放置). Default is in place
-  (原地放下): the arm's current XY at `desktop_height` — hover, descend,
-  open the gripper, lift. The gripper keeps holding until the bottom
-  (unlike `release`); calibrate a `place_pose` to carry the object to a
-  configured spot instead.
+- `jaka_place` — set a held object down (放置). Takes a target, exactly one
+  of: `x`, `y` in metres (arm base frame), or `u`, `v` as a pixel in the
+  camera's 1280×720 RGB frame (undistorted, then mapped through the
+  hand-eye homography). The arm carries the object there and sets it down at
+  `desktop_height` — hover, descend, open the gripper, lift. Both pairs 0
+  means no target: in place (原地放下) at the arm's current XY, or at a
+  calibrated `place_pose` when one is configured. The gripper keeps holding
+  until the bottom (unlike `release`).
 - `jaka_fixed_grasp` — fixed-pose pick-and-place (固定抓取):
   grasp at the calibrated `fixed_grasp_pose`, set down at the calibrated
   `fixed_place_pose`. No perception, no arguments; both hovers are
   z + `travel_offset`.
-- `jaka_pick` — locate a named object with the camera (yolo11-obb or
-  open-vocabulary VLM backend, `detect_scheme`) and grasp it: 2D hand-eye
+- `jaka_pick` — locate a named object with the camera (`detect_scheme`:
+  yolo11-obb, open-vocabulary VLM, or `auto` routing yolo-covered names to
+  yolo and the rest to the VLM) and grasp it: 2D hand-eye
   homography maps the detection to arm base_link XY. Requires on-site
   calibration (`homography_matrix`, detector config — see config.spec);
   reports a clear config error until then.
