@@ -12,6 +12,9 @@ detect(object_name) dispatches on `detect_scheme`:
         service consumes), which the pick flow turns into gripper yaw.
   vlm   one open-vocabulary multimodal call -> pixel bbox (no rotation,
         bbox_2d has 4 elements; the pick keeps the fixed grasp_rpy).
+  auto  routes per request: a name the loaded yolo weights cover (alias map
+        + the weights' own class names) goes to yolo, anything else to vlm.
+        A yolo miss is not retried through vlm.
 
 Returns a plain dict {success, bbox_2d, confidence, message}; the caller
 (pick flow) maps bbox_2d -> arm XY through geometry.Homography. Detection
@@ -62,10 +65,8 @@ class DetectConfig:
             self.yolo_class_aliases = {}
 
     @property
-    def ready(self) -> bool:
-        """Scheme-appropriate endpoint readiness (model file / VLM keys)."""
-        if self.detect_scheme == "yolo":
-            return bool(self.yolo_model_path)
+    def vlm_ready(self) -> bool:
+        """Endpoint + key + model set (what the vlm call needs)."""
         return bool(self.vlm_base_url and self.vlm_api_key and self.vlm_model)
 
 
@@ -91,8 +92,13 @@ class Detector:
         message}; raises RuntimeError with a stage-tagged reason on failure.
 
         bbox_2d is 5 elements on the yolo path (rotation in degrees as the
-        5th) and 4 on the vlm path."""
-        if self.cfg.detect_scheme == "yolo":
+        5th) and 4 on the vlm path. `auto` picks the backend per request:
+        a name the loaded weights cover goes to yolo, the rest to vlm."""
+        scheme = self.cfg.detect_scheme
+        if scheme == "auto":
+            scheme = "yolo" if self._yolo_class_for(object_name) else "vlm"
+            log.info("detect_scheme auto: '%s' -> %s", object_name, scheme)
+        if scheme == "yolo":
             return self._detect_via_yolo(object_name)
         return self._detect_via_vlm(object_name)
 
@@ -147,6 +153,39 @@ class Detector:
                          {int(k): str(v)
                           for k, v in (_MODEL.names or {}).items()})
             return _MODEL
+
+    def _alias_for(self, user_request: str) -> str:
+        """Lower-cased yolo class name the alias map assigns to the request
+        (e.g. 西红柿 -> tomato); "" when the phrasing is not mapped."""
+        key = str(user_request).strip()
+        mapping = self.cfg.yolo_class_aliases
+        return str(mapping.get(key) or mapping.get(key.lower())
+                   or "").strip().lower()
+
+    def _yolo_class_for(self, user_request: str) -> Optional[str]:
+        """The yolo class covering `user_request`, or None when the weights
+        do not know it — the `auto` routing decision. Alias map first, then
+        case-insensitive substring either way against the weights' own class
+        names. Weights missing/unloadable counts as "not covered" so `auto`
+        degrades to the vlm instead of failing pick."""
+        try:
+            names = self._load_model().names or {}
+        except RuntimeError as e:
+            log.warning("detect_scheme auto: yolo unusable (%s)", e)
+            return None
+        classes = [str(v) for v in names.values()]
+        key = str(user_request).strip().lower()
+        alias = self._alias_for(user_request)
+        if alias:
+            for name in classes:
+                low = name.lower()
+                if low == alias or alias in low or low in alias:
+                    return name
+        for name in classes:
+            low = name.lower()
+            if low and (low == key or key in low or low in key):
+                return name
+        return None
 
     def _yolo_detect_all(self, frame) -> list:
         """All obb detections on one frame, highest confidence first. Same
@@ -232,9 +271,7 @@ class Detector:
         (e.g. 胡萝卜 -> carrot), then case-insensitive substring either way.
         Detections are confidence-sorted, so the first match is the best."""
         key = str(user_request).strip().lower()
-        alias = str(self.cfg.yolo_class_aliases.get(user_request.strip())
-                    or self.cfg.yolo_class_aliases.get(key)
-                    or "").strip().lower()
+        alias = self._alias_for(user_request)
         for d in detections:
             name = str(d.get("object_name", "")).strip().lower()
             if alias and (name == alias or alias in name or name in alias):
@@ -253,7 +290,7 @@ class Detector:
         import cv2
 
         cfg = self.cfg
-        if not cfg.ready:
+        if not cfg.vlm_ready:
             raise RuntimeError(
                 "detection_failed: VLM not configured "
                 "(set vlm_base_url / vlm_api_key / vlm_model in the skill "

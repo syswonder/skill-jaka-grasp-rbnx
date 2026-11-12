@@ -255,8 +255,9 @@ class SkillConfig:
     desktop_height: float = 0.125
     travel_offset: float = 0.15
     grasp_rpy: list[float] = field(default_factory=lambda: [math.pi, 0.0, 0.0])
-    # ── detection backend: "vlm" (open-vocabulary, axis-aligned bbox) or
-    # "yolo" (in-process yolo11-obb; 5th bbox element carries rotation) ──
+    # ── detection backend: "vlm" (open-vocabulary, axis-aligned bbox),
+    # "yolo" (in-process yolo11-obb; 5th bbox element carries rotation) or
+    # "auto" (yolo for names its weights cover, vlm for the rest) ──
     detect_scheme: str = "vlm"
     yolo_model_path: str = ""
     yolo_conf: float = 0.6
@@ -283,15 +284,26 @@ class SkillConfig:
         missing = []
         if self.homography_matrix is None:
             missing.append("homography_matrix (2D hand-eye calibration)")
+        vlm_gap = ""
+        if not (self.vlm_base_url and self.vlm_api_key and self.vlm_model):
+            vlm_gap = "vlm_base_url/vlm_api_key/vlm_model"
+        path = os.path.expanduser(self.yolo_model_path) \
+            if self.yolo_model_path else ""
+        if not path:
+            yolo_gap = "yolo_model_path (YOLO obb weights)"
+        elif not os.path.isfile(path):
+            yolo_gap = f"yolo_model_path not found: {path}"
+        else:
+            yolo_gap = ""
         if self.detect_scheme == "yolo":
-            path = os.path.expanduser(self.yolo_model_path) \
-                if self.yolo_model_path else ""
-            if not path:
-                missing.append("yolo_model_path (YOLO obb weights)")
-            elif not os.path.isfile(path):
-                missing.append(f"yolo_model_path not found: {path}")
-        elif not (self.vlm_base_url and self.vlm_api_key and self.vlm_model):
-            missing.append("vlm_base_url/vlm_api_key/vlm_model")
+            if yolo_gap:
+                missing.append(yolo_gap)
+        elif self.detect_scheme == "auto":
+            # either backend alone keeps pick working
+            if yolo_gap and vlm_gap:
+                missing.append(f"{yolo_gap} and {vlm_gap}")
+        elif vlm_gap:
+            missing.append(vlm_gap)
         return "; ".join(missing)
 
     @property
@@ -361,7 +373,8 @@ class SkillConfig:
             desktop_height=_num(cfg, "desktop_height", 0.125),
             travel_offset=_num(cfg, "travel_offset", 0.15, minimum=0.0),
             grasp_rpy=_rpy3(cfg, "grasp_rpy", [math.pi, 0.0, 0.0]),
-            detect_scheme=_choice(cfg, "detect_scheme", ("vlm", "yolo"), "vlm"),
+            detect_scheme=_choice(cfg, "detect_scheme",
+                                  ("vlm", "yolo", "auto"), "vlm"),
             yolo_model_path=_text(cfg, "yolo_model_path", ""),
             yolo_conf=_num(cfg, "yolo_conf", 0.6, minimum=0.01, maximum=1.0),
             yolo_iou=_num(cfg, "yolo_iou", 0.45, minimum=0.01, maximum=1.0),
