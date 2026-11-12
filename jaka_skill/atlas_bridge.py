@@ -37,8 +37,10 @@ from jaka_mcp import (FixedGrasp_Request, FixedGrasp_Response, Grab_Request,
 from .camera import CameraFrames
 from .config import SkillConfig
 from .detect import DetectConfig, Detector
+from .feedback import grasp_verdict_from_state
 from .geometry import Homography, bbox_yaw_rad
-from .motion import GRASP_CLOSED_THRESHOLD_M, Arm, MotionError
+from .motion import (GRASP_CLOSED_THRESHOLD_M, GRIPPER_STATE_AVAILABLE,
+                     GRIPPER_STATE_TIMEOUT_S, Arm, MotionError)
 
 logging.basicConfig(
     level=os.environ.get("JAKA_SKILL_LOG_LEVEL", "INFO"),
@@ -59,11 +61,16 @@ _PRIMITIVE_TOPICS = {
     "joint_command": "robonix/primitive/arm/joint_command",
     "pos_command": "robonix/primitive/arm/pos_command",
 }
+# Standard gripper/state contract. Resolved for gripper bodies only: a hand
+# deployment has no such stream and keeps the joint_states width verdict.
+_GRIPPER_STATE_KEY = "gripper_state"
+_GRIPPER_STATE_CONTRACT = "robonix/primitive/gripper/state"
 _DEFAULT_TOPICS = {
     "joint_states": "/jaka/joint_states",
     "end_pose": "/jaka/end_pose",
     "joint_command": "/jaka/joint_command",
     "pos_command": "/jaka/pos_command",
+    "gripper_state": "/jaka/gripper/state",
 }
 # jaka_arm declares every topic qos="reliable" (jaka_arm/main.py).
 _FALLBACK_QOS = "reliable"
@@ -127,9 +134,12 @@ def _topic_of(channel, fallback_topic: str):
 def _resolve_topics(cfg: SkillConfig) -> dict:
     """topic key → (topic, qos). Priority: explicit config `topics:`
     override → atlas resolution (bounded retry) → /jaka/... default name."""
+    wanted = dict(_PRIMITIVE_TOPICS)
+    if cfg.end_effector == "gripper" and GRIPPER_STATE_AVAILABLE:
+        wanted[_GRIPPER_STATE_KEY] = _GRIPPER_STATE_CONTRACT
     resolved: dict = {}
     pending = []
-    for key, contract_id in _PRIMITIVE_TOPICS.items():
+    for key, contract_id in wanted.items():
         override = (cfg.topics or {}).get(key)
         if override:
             resolved[key] = (override, _FALLBACK_QOS)
@@ -230,6 +240,7 @@ def activate():
             end_pose=topics.get("end_pose"),
             joint_command=topics.get("joint_command"),
             pos_command=topics.get("pos_command"),
+            gripper_state=topics.get("gripper_state"),
         )
         _resolve_camera(_config)  # before start(): the bridge subscribes it
         _arm.start()
@@ -261,6 +272,44 @@ def deactivate():
 _GRASP_MAX_ATTEMPTS = 2
 
 
+def _close_verdict(arm: Arm, tag: str, t_close: float):
+    """Judge one close: ``(problem, note)``.
+
+    ``problem`` is None when the grasp counts as successful (the attempt may
+    lift); a string means the fingers met on air and drives retry/fail.
+    ``note`` is appended to the tool's message.
+
+    Priority: the device's own contact report (`gripper/state`) when a round
+    acquired after the close arrives, else the historical width heuristic
+    (hand bodies, or a provider without that stream). HOLDING/SLIPPING only
+    confirm success; a NOT_HOLDING report with the jaws fully closed is the
+    reliable empty-grip signature.
+    """
+    state = (arm.wait_gripper_state(since=t_close,
+                                    timeout_s=GRIPPER_STATE_TIMEOUT_S)
+             if arm.gripper_state_available else None)
+    if state is not None:
+        kind, detail = grasp_verdict_from_state(
+            state.get("grasp_state"), state.get("width_m"))
+        log.info("%s: gripper/state verdict=%s (%s)", tag, kind, detail)
+        if kind == "empty":
+            return detail, ""
+        if kind == "holding":
+            return None, ""
+        if kind == "slipping":
+            return None, f" ({detail})"
+        return None, f" (grasp unverified: {detail})"
+    arm.settle_gripper(expect_open=False, stage=f"{tag}/close")
+    width = arm.wait_gripper_settled(since=t_close)
+    if width is None:
+        log.warning("%s: no settled gripper width — grasp unverified", tag)
+        return None, " (grasp unverified: no settled gripper feedback)"
+    if width < GRASP_CLOSED_THRESHOLD_M:
+        return (f"gripper fully closed (width {width * 1000:.1f} mm) — nothing "
+                f"between the fingers"), ""
+    return None, ""
+
+
 def _grasp_segment(arm: Arm, cfg: SkillConfig, hover_pose: list[float],
                    grasp_pose: list[float], relocalize=None) -> str:
     """Shared grasp segment: open -> hover -> (descend -> close -> verify)
@@ -270,14 +319,16 @@ def _grasp_segment(arm: Arm, cfg: SkillConfig, hover_pose: list[float],
     `fixed_grasp` (poses from config) and `pick` (grasp XY computed from
     perception, hover lifted by travel_offset). A failed lift is non-fatal
     (object already held).
-    A settled width < GRASP_CLOSED_THRESHOLD_M means the fingers met on air
-    (nothing between them): retry; a repeated failure raises. Any wider
-    settled width counts as grasped — an empty close runs to the ~0 m stop,
-    so only "fully closed" is reliable evidence of a miss; width alone
-    cannot separate a gripped object from a close that never executed
-    (2026-10-12 decision: assume grasped whenever not fully closed).
-    Unreadable gripper feedback is not evidence of failure — the attempt
-    proceeds with the message marked unverified.
+
+    Verification after each close is `_close_verdict`: the device-reported
+    grasp state from `gripper/state` when a fresh round lands after the
+    close (HOLDING/SLIPPING count as grasped), otherwise the historical
+    width rule — a settled width below GRASP_CLOSED_THRESHOLD_M means the
+    fingers met on air, retry, and a repeated failure raises; any wider
+    settled width counts as grasped, because width alone cannot separate a
+    gripped object from a close that never executed (2026-10-12 decision:
+    assume grasped whenever not fully closed). Unreadable feedback is not
+    evidence of failure — the attempt proceeds marked unverified.
 
     The retry strategy depends on `relocalize`: without it (grab /
     fixed_grasp — fixed poses) the arm backs off to hover and repeats the
@@ -299,17 +350,10 @@ def _grasp_segment(arm: Arm, cfg: SkillConfig, hover_pose: list[float],
         arm.move_pose(grasp_xyz, grasp_rpy, stage=f"{tag}/descend",
                       timeout_s=cfg.pose_timeout_s)
         t_close = arm.set_gripper(cfg.gripper_close_m, stage=f"{tag}/close")
-        arm.settle_gripper(expect_open=False, stage=f"{tag}/close")
-        width = arm.wait_gripper_settled(since=t_close)
-        if width is None:
-            note = " (grasp unverified: no settled gripper feedback)"
-            log.warning("%s: no settled gripper width — grasp unverified", tag)
-            break
-        if width < GRASP_CLOSED_THRESHOLD_M:
-            problem = (f"gripper fully closed (width {width * 1000:.1f} mm) — "
-                       f"nothing between the fingers")
-        else:
-            break  # stopped short of fully closed: something is in the fingers
+        problem, suffix = _close_verdict(arm, tag, t_close)
+        note += suffix
+        if problem is None:
+            break  # holding, slipping-with-contact, or unverified-but-assumed
         if attempt == _GRASP_MAX_ATTEMPTS:
             raise MotionError(f"grasp failed after {attempt} attempts: {problem}")
         arm.set_gripper(cfg.gripper_open_m, stage=f"{tag}/reopen")
@@ -484,10 +528,12 @@ def grab(_req: Grab_Request) -> Grab_Response:
     come from the deployment config. Use this when the user says "grab it
     / 抓" and the object is already positioned at the configured grasp
     pose. Opens the gripper, moves to hover, descends to grasp, closes the
-    gripper, verifies the close by width (fingers fully closed = nothing
-    grasped → one retry from hover; a repeated empty close fails the tool),
-    then lifts back to hover and holds. Blocks until done. Takes no
-    arguments.
+    gripper, then verifies the close from the device's own grasp report
+    (gripper/state: holding = grasped; fully closed with no grip = nothing
+    between the fingers → one retry from hover; a repeated empty close
+    fails the tool), falling back to the settled gripper width when that
+    stream is unavailable. Then lifts back to hover and holds. Blocks until
+    done. Takes no arguments.
     """
     cfg = _require_active()
     arm = _arm

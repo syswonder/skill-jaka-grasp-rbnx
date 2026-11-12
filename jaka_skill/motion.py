@@ -21,7 +21,13 @@ from typing import Optional
 from geometry_msgs.msg import Pose
 from sensor_msgs.msg import JointState
 
+try:  # the standard gripper contracts ship with the robonix codegen
+    from gripper.msg import GripperState
+except ImportError:  # pragma: no cover - old codegen without gripper/*
+    GripperState = None
+
 from .feedback import (
+    GRASP_CLOSED_THRESHOLD_M,
     GRIPPER_JOINT_NAME,
     GRIPPER_STROKE_M,
     width_from_joint_state,
@@ -35,25 +41,39 @@ JOINT_NAMES = [f"joint_{i}" for i in range(1, 7)]
 # grasp-verdict one.
 GRIPPER_OPEN_THRESHOLD_M = 0.5 * GRIPPER_STROKE_M
 
-# Grasp verification (after grasp/close). A settled width below
-# GRASP_CLOSED_THRESHOLD_M means the fingers met on air: an empty close runs
-# the adaptive grip to the ~0 m stop, so "fully closed" is the reliable
-# no-object signature. Any wider settled width counts as grasped — width
-# alone cannot separate a gripped object (settling at its own width,
+# Grasp verification (after grasp/close). Two sources, in priority order:
+#
+# * `robonix/primitive/gripper/state` — every message is one fresh acquisition
+#   round of the TG-9801 (opening + holding-state register) stamped with the
+#   round's start, so one message acquired after the close is enough to judge
+#   contact: the device itself reports holding / moving / slipping. This
+#   replaces the width-stability heuristic for gripper bodies.
+# * the `gripper_joint` width in `joint_states` — still the only signal for
+#   the O6 hand body, and the fallback when no fresh state sample arrives.
+#   It is republished from a <=2 s cache after a ~1.3 s RS485 read, so one
+#   sample can still carry a pre-command or mid-travel value: only two
+#   samples at least GRIPPER_SETTLE_GAP_S apart that agree within
+#   GRIPPER_SETTLE_TOL_M are trusted.
+GRIPPER_STATE_AVAILABLE = GripperState is not None
+
+# Width fallback (hand bodies, or no fresh state sample). A settled width
+# below GRASP_CLOSED_THRESHOLD_M means the fingers met on air: an empty
+# close runs the adaptive grip to the ~0 m stop, so "fully closed" is the
+# reliable no-object signature. Any wider settled width counts as grasped —
+# width alone cannot separate a gripped object (settling at its own width,
 # possibly > half stroke) from a close that never executed (2026-10-12
 # decision: assume grasped whenever not fully closed).
-# The provider republishes its cached reading (<=2 s cache, ~1.3 s per RS485
-# read), so one sample can still carry a pre-command or mid-travel value —
-# only trust two samples at least GRIPPER_SETTLE_GAP_S apart that agree
-# within GRIPPER_SETTLE_TOL_M, which spans at least one fresh read. The gap
-# also covers a read that had to retry (2 s cache + 2x read).
-GRASP_CLOSED_THRESHOLD_M = 0.005
 GRIPPER_SETTLE_GAP_S = 5.0
 GRIPPER_SETTLE_TOL_M = 0.002
-# Deadline for the verdict, measured from the wait's start (after the 1.5 s
-# settle): first post-command read (<=3.3 s) + gap + one read that landed
-# mid-travel (<=3.3 s) + slack.
+# Deadline for the width verdict, measured from the wait's start (after the
+# 1.5 s settle): first post-command read (<=3.3 s) + gap + one read that
+# landed mid-travel (<=3.3 s) + slack.
 GRASP_VERIFY_TIMEOUT_S = 13.0
+# Deadline for the gripper/state verdict. One acquisition round costs ~2.6 s
+# (two single-entry RS485 reads, each up to 2 retries) plus a 0.5 s gap, so a
+# close that lands mid-round waits for the next round: 2.6 + 0.5 + 4.4 with
+# the worst-case retries ≈ 9.3 s.
+GRIPPER_STATE_TIMEOUT_S = 10.0
 
 
 class MotionError(RuntimeError):
@@ -125,6 +145,7 @@ class Arm:
         self._t_end_pose: Optional[tuple] = None
         self._t_joint_command: Optional[tuple] = None
         self._t_pos_command: Optional[tuple] = None
+        self._t_gripper_state: Optional[tuple] = None
         # feedback cache (monotonic timestamp per entry)
         self._end_pose = None
         self._end_pose_mono: Optional[float] = None
@@ -132,15 +153,20 @@ class Arm:
         self._joints_mono: Optional[float] = None
         self._gripper_m: Optional[float] = None
         self._gripper_mono: Optional[float] = None
+        # last gripper/state round: dict + its acquisition instant (monotonic)
+        self._gripper_state: Optional[dict] = None
+        self._gripper_state_mono: Optional[float] = None
 
     # ── lifecycle ─────────────────────────────────────────────────────────
 
     def set_topics(self, *, joint_states=None, end_pose=None,
-                   joint_command=None, pos_command=None) -> None:
+                   joint_command=None, pos_command=None,
+                   gripper_state=None) -> None:
         self._t_joint_states = joint_states
         self._t_end_pose = end_pose
         self._t_joint_command = joint_command
         self._t_pos_command = pos_command
+        self._t_gripper_state = gripper_state
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
@@ -192,6 +218,15 @@ class Arm:
                     topic, qos = arm._t_pos_command
                     arm._pub_pos_command = self.create_publisher(
                         Pose, topic, qos_from_profile(qos))
+                # Standard gripper/state (gripper bodies only). Absent on a
+                # hand deployment or an older provider: the grasp verdict
+                # then falls back to the joint_states width path.
+                if arm._t_gripper_state is not None and GripperState is not None:
+                    topic, qos = arm._t_gripper_state
+                    self.create_subscription(
+                        GripperState, topic, arm._on_gripper_state,
+                        qos_from_profile(qos))
+                    log.info("gripper/state subscribed on %s", topic)
                 # Camera (pick path): subscribe the RGB frame cache on this
                 # same node when one was provided and its topic is resolved.
                 if arm.frames is not None and arm.frames.topic:
@@ -248,6 +283,28 @@ class Arm:
                 self._gripper_m = width
                 self._gripper_mono = time.monotonic()
 
+    def _on_gripper_state(self, msg) -> None:
+        """One acquisition round of the standard gripper/state contract.
+
+        The provider stamps the round's start, which can be up to one round
+        (~2.6 s) before the message reaches us; convert that instant onto
+        the local monotonic clock so `wait_gripper_state` can tell a
+        pre-command round from a post-command one.
+        """
+        now_mono = time.monotonic()
+        stamp = float(msg.stamp.sec) + float(msg.stamp.nanosec) * 1e-9
+        acquired = now_mono - (time.time() - stamp) if stamp > 0.0 else now_mono
+        width = (float(msg.opening_width_m)
+                 if msg.opening_width_valid and math.isfinite(msg.opening_width_m)
+                 else None)
+        with self._lock:
+            self._gripper_state = {
+                "grasp_state": int(msg.grasp_state),
+                "motion_state": int(msg.motion_state),
+                "width_m": width,
+            }
+            self._gripper_state_mono = acquired
+
     # ── feedback accessors ────────────────────────────────────────────────
 
     def end_pose_now(self):
@@ -261,6 +318,36 @@ class Arm:
     def gripper_width_now(self):
         with self._lock:
             return self._gripper_m, self._gripper_mono
+
+    def gripper_state_now(self):
+        with self._lock:
+            if self._gripper_state is None:
+                return None, None
+            return dict(self._gripper_state), self._gripper_state_mono
+
+    @property
+    def gripper_state_available(self) -> bool:
+        """True when a gripper/state stream is wired AND has delivered."""
+        return (self._t_gripper_state is not None
+                and self._gripper_state_mono is not None)
+
+    def wait_gripper_state(self, *, since: float,
+                           timeout_s: float = GRIPPER_STATE_TIMEOUT_S):
+        """First gripper/state round acquired after `since`, else None.
+
+        A round stamped before the command cannot judge it: the provider
+        reads its registers across ~2.6 s, so a message that arrives right
+        after the publish can still describe the pre-command grip. `since`
+        is the command's publish time (monotonic), and the message stamp is
+        converted to the same clock.
+        """
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            state, mono = self.gripper_state_now()
+            if state is not None and mono is not None and mono > since:
+                return state
+            time.sleep(self.cfg.poll_s)
+        return None
 
     def arm_joints_fresh(self, max_age_s: float):
         joints, mono = self.arm_joints_now()

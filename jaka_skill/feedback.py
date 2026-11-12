@@ -29,6 +29,56 @@ GRIPPER_STROKE_M = 0.098  # TG-9801 stroke, also the hand's width-like scale
 
 GRIPPER_JOINT_NAME = "gripper_joint"
 
+# ---- standard gripper/state values -----------------------------------------
+# The provider maps the TG-9801 holding-state register onto GraspState
+# (jaka_arm/gripper_contract.py): 0 idle / 1 moving / 2 holding / 3 slipping.
+GRASP_UNKNOWN = 0
+GRASP_NOT_HOLDING = 1
+GRASP_HOLDING = 2
+GRASP_SLIPPING = 3
+
+# A grip whose measured opening is below this met the fingers on air: an
+# empty close runs the adaptive grip to the ~0 m stop, so "fully closed" is
+# the reliable no-object signature. Any wider opening counts as grasped —
+# width alone cannot separate a gripped object from a close that never
+# executed (2026-10-12 decision), which is exactly what the device-reported
+# grasp state now resolves.
+GRASP_CLOSED_THRESHOLD_M = 0.005
+
+
+def grasp_verdict_from_state(grasp_state, width_m):
+    """Turn one `gripper/state` sample into a grasp verdict.
+
+    Returns ``(kind, detail)``, kind being one of:
+
+    * ``holding``   — the device confirms an established grip;
+    * ``slipping``  — contact established, but the device reports slipping;
+    * ``empty``     — no established grip and the jaws are fully closed, so
+                      the fingers met on air;
+    * ``ambiguous`` — no established grip yet the opening is wider than
+                      fully closed (or unreadable): keep the historical
+                      "assume grasped" behaviour, but say it is unverified;
+    * ``unknown``   — the register could not be read; no verdict from state.
+    """
+    state = GRASP_UNKNOWN if grasp_state is None else int(grasp_state)
+    if state == GRASP_HOLDING:
+        return "holding", "device reports an established grip"
+    if state == GRASP_SLIPPING:
+        return "slipping", "device reports the grip is slipping"
+    if state == GRASP_NOT_HOLDING:
+        if width_m is None or not _finite(width_m):
+            return ("ambiguous",
+                    "device reports no established grip; opening unreadable")
+        width_m = float(width_m)
+        if width_m < GRASP_CLOSED_THRESHOLD_M:
+            return ("empty",
+                    f"gripper fully closed (width {width_m * 1000:.1f} mm) — "
+                    f"nothing between the fingers")
+        return ("ambiguous",
+                f"device reports no established grip "
+                f"(width {width_m * 1000:.1f} mm)")
+    return "unknown", "device grasp state unavailable"
+
 # O6 grasp fingers used for the width-like opening: thumb flexion +
 # index/middle/ring flexion (the AIIT grasp口径; pinky excluded by their
 # calibration). Each entry is (joint name, URDF upper limit in rad). The
