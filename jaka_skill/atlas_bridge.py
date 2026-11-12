@@ -449,17 +449,85 @@ def _run_home(arm: Arm, cfg: SkillConfig) -> str:
             f"{math.degrees(err):.2f} deg); gripper untouched")
 
 
-def _run_place(arm: Arm, cfg: SkillConfig) -> str:
-    """Set the held object down — at the configured `place_pose` when one is
-    calibrated, otherwise IN PLACE (原地放下): the arm's current XY at the
-    calibrated desktop_height, with grasp_rpy. Either way the mirror of the
-    grab segment: hover above the target (z + travel_offset), descend, open
-    the gripper, lift back to hover. The gripper keeps holding until the
-    bottom (NO open-before-approach here). A failed lift is non-fatal: the
-    object is already released."""
+def _place_xy_from_pixel(cfg: SkillConfig, homography: Optional[Homography],
+                         u: float, v: float) -> tuple[float, float]:
+    """Raw camera pixel -> arm base XY (metres).
+
+    `u, v` are pixels in the RGB image as the camera primitive delivers it
+    (1280x720, uncorrected) — what a client shows and a human clicks. The
+    hand-eye homography was solved on UNDISTORTED pixels, so undistort the
+    point first with the configured intrinsics (P = K, exactly what
+    camera.py does to whole frames), then project.
+
+    No frame grab: place needs the calibration, not a live stream, so the
+    pixel path keeps working with the camera offline."""
+    if homography is None or not homography.configured:
+        raise MotionError(
+            "place failed: a pixel target needs the hand-eye "
+            "`homography_matrix` (unset in the deploy config)")
+    if cfg.camera_matrix is None or cfg.dist_coeffs is None:
+        raise MotionError(
+            "place failed: a pixel target needs `camera_matrix` and "
+            "`dist_coeffs` to undistort it (unset in the deploy config)")
+    import cv2
+    import numpy as np
+
+    k = np.asarray(cfg.camera_matrix, dtype=np.float64)
+    d = np.asarray(cfg.dist_coeffs, dtype=np.float64)
+    pts = np.array([[[float(u), float(v)]]], dtype=np.float64)
+    try:
+        und = cv2.undistortPoints(pts, k, d, P=k)[0, 0]
+    except Exception as exc:  # noqa: BLE001
+        raise MotionError(f"place failed: could not undistort pixel "
+                          f"({u:.1f}, {v:.1f}): {exc}") from exc
+    try:
+        x, y = homography.to_arm_xy(float(und[0]), float(und[1]))
+    except ValueError as exc:
+        raise MotionError(f"place failed: pixel ({u:.1f}, {v:.1f}) did not "
+                          f"map to the table plane: {exc}") from exc
+    log.info("place pixel (%.1f, %.1f) -> undistorted (%.1f, %.1f) -> "
+             "base xy (%.3f, %.3f)", u, v, und[0], und[1], x, y)
+    return x, y
+
+
+def _run_place(arm: Arm, cfg: SkillConfig, x: float = 0.0,
+               y: float = 0.0, u: float = 0.0, v: float = 0.0,
+               homography: Optional[Homography] = None) -> str:
+    """Set the held object down. Target precedence: the commanded pixel
+    (u, v), else the commanded metres (x, y), else the configured
+    `place_pose`, else IN PLACE (原地放下) at the arm's current XY. Giving
+    both a pixel and a metres target is an error (ambiguous). z is always
+    desktop_height and the orientation grasp_rpy, so the target moves in the
+    table plane only. Either way the mirror of the grab segment: hover above
+    the target (z + travel_offset), descend, open the gripper, lift back to
+    hover. The gripper keeps holding until the bottom (NO
+    open-before-approach here). A failed lift is non-fatal: the object is
+    already released."""
     arm.wait_feedback_ready("preflight", cfg.feedback_timeout_s)
-    if cfg.place_pose is not None:
+    have_xy = bool(x or y)
+    have_px = bool(u or v)
+    if have_xy and have_px:
+        raise MotionError(
+            "place failed: ambiguous target — give either the metres "
+            f"(x, y) or the pixel (u, v), not both (got x={x:g}, y={y:g}, "
+            f"u={u:g}, v={v:g})")
+    if have_px:
+        # Pixel target wins nothing — it is exclusive with the metres pair.
+        px, py = _place_xy_from_pixel(
+            cfg, homography if homography is not None else _homography, u, v)
+        xyz = [px, py, cfg.desktop_height]
+        rpy = list(cfg.grasp_rpy)
+        where = f"pixel ({u:.0f}, {v:.0f}) -> xy ({px:.3f}, {py:.3f})"
+    elif have_xy:
+        # Commanded target wins over the configured pose. The tool schema
+        # marks x and y required, so (0, 0) is the only "no target"
+        # spelling — and it is the base column, not a reachable point.
+        xyz = [x, y, cfg.desktop_height]
+        rpy = list(cfg.grasp_rpy)
+        where = f"the commanded xy ({x:.3f}, {y:.3f})"
+    elif cfg.place_pose is not None:
         xyz, rpy = cfg.place_pose[:3], cfg.place_pose[3:]
+        where = "the configured place_pose"
     else:
         # In-place default: the current XY over the table, grasp
         # orientation. wait_feedback_ready just proved a fresh end_pose
@@ -470,7 +538,8 @@ def _run_place(arm: Arm, cfg: SkillConfig) -> str:
                               "derive the in-place target from")
         xyz = [now[0], now[1], cfg.desktop_height]
         rpy = list(cfg.grasp_rpy)
-        log.info("place_pose unset — placing in place: xy (%.3f, %.3f) "
+        where = f"in place, xy ({now[0]:.3f}, {now[1]:.3f})"
+        log.info("place target unset — placing in place: xy (%.3f, %.3f) "
                  "from end_pose, z %.3f (desktop_height)", now[0], now[1],
                  cfg.desktop_height)
     hover_xyz = [xyz[0], xyz[1], xyz[2] + cfg.travel_offset]
@@ -486,8 +555,9 @@ def _run_place(arm: Arm, cfg: SkillConfig) -> str:
     except MotionError as exc:
         # The object is already on the table: a failed lift is a warning,
         # not a failure (the arm stays at the place pose, empty).
-        return f"placed (arm stayed at the place pose); lift failed: {exc}"
-    return "placed and lifted back to hover"
+        return (f"placed at {where} (arm stayed at the place pose); "
+                f"lift failed: {exc}")
+    return f"placed at {where} and lifted back to hover"
 def _run_fixed_grasp(arm: Arm, cfg: SkillConfig) -> str:
     """Fixed-pose pick-and-place. The grasp half reuses the grab
     segment (open -> hover -> descend -> close -> settle -> lift[non-fatal]
@@ -590,23 +660,34 @@ def home(_req: Home_Request) -> Home_Response:
 
 
 @jaka_skill.mcp("robonix/skill/jaka/place")
-def place(_req: Place_Request) -> Place_Response:
+def place(req: Place_Request) -> Place_Response:
     """Set the held object down. Use this when the user says "place it /
-    put it down / 放下 / 放置" and the arm is holding something. WHERE is
-    config-driven: by default, with no `place_pose` calibrated, the object
-    is set down IN PLACE (原地放下) — right below where the arm holds it
-    (current XY at the calibrated table height); when a `place_pose` is
-    configured, the object is carried there instead. Either way: hover
-    above the target, descend, open the gripper, then lift back to hover
-    empty; the gripper keeps holding all the way down — unlike `release`,
-    which just lets go where the arm currently is, mid-air. Blocks until
-    done. Takes no arguments.
+    put it down / 放下 / 放置" and the arm is holding something. WHERE —
+    give at most one target:
+
+    * `u`, `v`: a pixel in the camera's RGB image (1280x720, the frame a
+      client displays). Use this when the user points at something in the
+      picture ("放到图上那个位置", "放到红框那里"). The skill undistorts the
+      pixel and maps it to the arm through the calibrated hand-eye
+      homography — the camera does not need to be streaming.
+    * `x`, `y`: metres in the arm base frame (the same frame as `grab`'s
+      poses) — use when the user gives coordinates in metres.
+
+    Pass 0 for both values of the pair you are NOT using. Giving a pixel
+    pair AND a metres pair is an error. With both pairs 0 ("放下" /
+    "就在这儿放") there is NO target: a configured `place_pose` is used if
+    calibrated, otherwise the object is set down IN PLACE (原地放下), right
+    below where the arm holds it. Either way: hover above the target,
+    descend, open the gripper, then lift back to hover empty; the gripper
+    keeps holding all the way down — unlike `release`, which just lets go
+    where the arm currently is, mid-air. All four arguments are required.
+    Blocks until done.
     """
     cfg = _require_active()
     arm = _arm
     t0 = time.monotonic()
     try:
-        message = _run_place(arm, cfg)
+        message = _run_place(arm, cfg, req.x, req.y, req.u, req.v)
     except MotionError as exc:
         raise RuntimeError(f"place failed: {exc}") from exc
     return Place_Response(success=True, message=message,

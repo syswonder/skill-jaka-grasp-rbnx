@@ -1,18 +1,30 @@
 # robonix/skill/jaka/place — set a held object down.
 #
-# User-invocable atomic intent: "place / put it down / 放下 / 放置". Where
-# is config-driven: with no `place_pose` calibrated (default) the object
-# is set down IN PLACE (原地放下) — the arm's current XY at the calibrated
-# desktop_height, orientation grasp_rpy; with a `place_pose` set in the
-# deploy manifest's `skill: - name: jaka` config block, the object is
-# carried there. Either way the mirror of grab: hover above the target
-# (z + travel_offset), descend, open the gripper, settle, lift back to
-# hover. The gripper keeps holding until the bottom — `release` is the
-# zero-motion let-go-here tool. A failed lift is non-fatal (the object is
-# already released). Motion goes through jaka_arm's pos_command /
-# joint_command contracts via atlas.
+# User-invocable atomic intent: "place / put it down / 放下 / 放置 /
+# 放到 x=.. y=.. / 放到那个位置(像素)". The target — exactly one of the
+# first two, or neither:
+#   1. (x, y) metres in the arm base frame — carried there and set down;
+#   2. (u, v) pixel in the camera's RGB image (1280x720, raw frame as a
+#      client sees it) — undistorted with camera_matrix/dist_coeffs, then
+#      mapped through the hand-eye homography_matrix to base XY;
+#   3. with neither: a `place_pose` from the deploy manifest's
+#      `skill: - name: jaka` block, when calibrated;
+#   4. otherwise IN PLACE (原地放下) — the arm's current XY.
+# Giving both a metres pair and a pixel pair is an error (ambiguous).
+# z is always the calibrated desktop_height and the orientation grasp_rpy,
+# so the target moves in the table plane only. Either way the mirror of
+# grab: hover above the target (z + travel_offset), descend, open the
+# gripper, settle, lift back to hover. The gripper keeps holding until the
+# bottom — `release` is the zero-motion let-go-here tool. A failed lift is
+# non-fatal (the object is already released). Motion goes through
+# jaka_arm's pos_command / joint_command contracts via atlas.
 #
-# Synchronous. Request has NO fields — the tool takes no arguments ({}).
+# Synchronous. Arguments: x, y, u, v (float). All four are required by the
+# tool schema (the framework has no optional MCP arguments); 0/0 in each
+# pair means "that pair is not given". A pixel target needs
+# camera_matrix + dist_coeffs + homography_matrix in the deploy config; it
+# never touches the camera stream, so place keeps working with the camera
+# offline as long as the calibration is present.
 [contract]
 id      = "robonix/skill/jaka/place"
 version = "1"
