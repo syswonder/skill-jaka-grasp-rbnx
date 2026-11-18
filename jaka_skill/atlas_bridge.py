@@ -29,10 +29,9 @@ from typing import Any, Optional
 
 from robonix_api import ATLAS, Err, Ok, Skill
 
-from jaka_mcp import (FixedGrasp_Request, FixedGrasp_Response, Grab_Request,
-                      Grab_Response, Home_Request, Home_Response, Pick_Request,
-                      Pick_Response, Place_Request, Place_Response,
-                      Release_Request, Release_Response)
+from jaka_mcp import (Grab_Request, Grab_Response, Home_Request, Home_Response,
+                      Pick_Request, Pick_Response, Place_Request,
+                      Place_Response, Release_Request, Release_Response)
 
 from .camera import CameraFrames
 from .config import SkillConfig
@@ -266,9 +265,9 @@ def deactivate():
 # ── flows ───────────────────────────────────────────────────────────────────
 
 # Verification retries: a close whose settled width shows fully-closed
-# fingers (nothing between them) is retried — from hover for the fixed-pose
-# callers, and via a home reset + fresh detection for `pick`; when the last
-# attempt also fails the flow raises.
+# fingers (nothing between them) is retried — from hover for `grab`, and via
+# a home reset + fresh detection for `pick`; when the last attempt also
+# fails the flow raises.
 _GRASP_MAX_ATTEMPTS = 2
 
 
@@ -315,9 +314,9 @@ def _grasp_segment(arm: Arm, cfg: SkillConfig, hover_pose: list[float],
     """Shared grasp segment: open -> hover -> (descend -> close -> verify)
     x _GRASP_MAX_ATTEMPTS -> lift.
 
-    hover_pose / grasp_pose are [x, y, z, rx, ry, rz]. Used by `grab` and
-    `fixed_grasp` (poses from config) and `pick` (grasp XY computed from
-    perception, hover lifted by travel_offset). A failed lift is non-fatal
+    hover_pose / grasp_pose are [x, y, z, rx, ry, rz]. Used by `grab`
+    (poses from config) and `pick` (grasp XY computed from perception,
+    hover lifted by travel_offset). A failed lift is non-fatal
     (object already held).
 
     Verification after each close is `_close_verdict`: the device-reported
@@ -330,12 +329,12 @@ def _grasp_segment(arm: Arm, cfg: SkillConfig, hover_pose: list[float],
     assume grasped whenever not fully closed). Unreadable feedback is not
     evidence of failure — the attempt proceeds marked unverified.
 
-    The retry strategy depends on `relocalize`: without it (grab /
-    fixed_grasp — fixed poses) the arm backs off to hover and repeats the
-    same pose; with it (pick) the arm first resets to `home_joints`, out of
-    the object area — the hover pose sits directly over the object and can
-    block the fixed camera — then `relocalize()` re-detects and returns
-    fresh (hover, grasp) poses for the next attempt.
+    The retry strategy depends on `relocalize`: without it (grab — fixed
+    poses) the arm backs off to hover and repeats the same pose; with it
+    (pick) the arm first resets to `home_joints`, out of the object area —
+    the hover pose sits directly over the object and can block the fixed
+    camera — then `relocalize()` re-detects and returns fresh
+    (hover, grasp) poses for the next attempt.
     """
     hover_xyz, hover_rpy = hover_pose[:3], hover_pose[3:]
     grasp_xyz, grasp_rpy = grasp_pose[:3], grasp_pose[3:]
@@ -558,35 +557,6 @@ def _run_place(arm: Arm, cfg: SkillConfig, x: float = 0.0,
         return (f"placed at {where} (arm stayed at the place pose); "
                 f"lift failed: {exc}")
     return f"placed at {where} and lifted back to hover"
-def _run_fixed_grasp(arm: Arm, cfg: SkillConfig) -> str:
-    """Fixed-pose pick-and-place. The grasp half reuses the grab
-    segment (open -> hover -> descend -> close -> settle -> lift[non-fatal]
-    ) at the configured fixed_grasp_pose; the place half is hover above
-    fixed_place_pose -> descend -> open -> settle -> lift (non-fatal — the
-    object is already down). Both hovers are z + travel_offset (pick's
-    height model). A failed post-grasp lift is carried in the message,
-    not fatal: the object is in the fingers and the next waypoint is
-    reachable from wherever the arm is."""
-    arm.wait_feedback_ready("preflight", cfg.feedback_timeout_s)
-    g_xyz, g_rpy = cfg.fixed_grasp_pose[:3], cfg.fixed_grasp_pose[3:]
-    g_hover = [g_xyz[0], g_xyz[1], g_xyz[2] + cfg.travel_offset, *g_rpy]
-    grasp_msg = _grasp_segment(arm, cfg, g_hover, cfg.fixed_grasp_pose)
-    p_xyz, p_rpy = cfg.fixed_place_pose[:3], cfg.fixed_place_pose[3:]
-    p_hover = [p_xyz[0], p_xyz[1], p_xyz[2] + cfg.travel_offset, *p_rpy]
-    arm.move_pose(p_hover[:3], p_rpy, stage="fixed_grasp/approach",
-                  timeout_s=cfg.pose_timeout_s)
-    arm.move_pose(p_xyz, p_rpy, stage="fixed_grasp/descend",
-                  timeout_s=cfg.pose_timeout_s)
-    arm.set_gripper(cfg.gripper_open_m, stage="fixed_grasp/open")
-    arm.settle_gripper(expect_open=True, stage="fixed_grasp/open")
-    try:
-        arm.move_pose(p_hover[:3], p_rpy, stage="fixed_grasp/lift",
-                      timeout_s=cfg.pose_timeout_s)
-    except MotionError as exc:
-        # The object is already on the table: a failed lift is a warning.
-        return (f"{grasp_msg}; placed (arm stayed at the place pose); "
-                f"lift failed: {exc}")
-    return f"{grasp_msg}; placed and lifted back to hover"
 
 
 # ── MCP tools ───────────────────────────────────────────────────────────────
@@ -692,33 +662,6 @@ def place(req: Place_Request) -> Place_Response:
         raise RuntimeError(f"place failed: {exc}") from exc
     return Place_Response(success=True, message=message,
                           elapsed_s=time.monotonic() - t0)
-@jaka_skill.mcp("robonix/skill/jaka/fixed_grasp")
-def fixed_grasp(_req: FixedGrasp_Request) -> FixedGrasp_Response:
-    """Pick the demo object up from the fixed configured pickup position
-    and set it down at the fixed configured place position. Use this when
-    the user says "固定抓取" and both positions are the pre-calibrated
-    fixed ones — no perception and no arguments. The flow: open gripper ->
-    hover over the object -> descend -> grip -> lift -> hover over the
-    place position -> descend -> open -> lift. Grip force comes from
-    jaka_arm's `gripper_force` config (applied once at connect) — it must
-    be LOW: the demo object (a raw egg) is fragile. Blocks until done.
-    Takes no arguments.
-    """
-    cfg = _require_active()
-    if cfg.fixed_grasp_error:
-        raise RuntimeError(
-            f"fixed_grasp unavailable: {cfg.fixed_grasp_error} — set both "
-            f"poses ([x, y, z, rx, ry, rz], metres + radians, same "
-            f"frame/units as hover_pose) in the deploy manifest's "
-            f"`skill: - name: jaka` config block")
-    arm = _arm
-    t0 = time.monotonic()
-    try:
-        message = _run_fixed_grasp(arm, cfg)
-    except MotionError as exc:
-        raise RuntimeError(f"fixed_grasp failed: {exc}") from exc
-    return FixedGrasp_Response(success=True, message=message,
-                               elapsed_s=time.monotonic() - t0)
 
 
 @jaka_skill.mcp("robonix/skill/jaka/pick")

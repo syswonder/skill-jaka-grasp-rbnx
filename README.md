@@ -1,4 +1,4 @@
-# skill-jaka-grasp-rbnx — JAKA Mini grab/release/home/place/pick skill (+ 固定抓取)
+# skill-jaka-grasp-rbnx — JAKA Mini grab/release/home/place/pick skill
 
 Robonix skill for the fixed-base JAKA Mini, usable with **either** body
 deployment — JAKA Mini + TG-9801 gripper or JAKA Mini + LinkerHand O6 hand —
@@ -6,7 +6,7 @@ from this one package. Each deploy manifest declares its body with the
 required skill config `end_effector: gripper|hand`; the skill then reads the
 matching feedback (gripper_joint width, or a width reconstructed from the O6
 hand joints). Commands stay `gripper_joint` in both cases; the primitive
-translates them. Six synchronous MCP tools:
+translates them. Five synchronous MCP tools:
 
 - `jaka_grab` — open gripper → hover → descend to the configured grasp pose
   → close gripper → settle → lift back to hover and hold. No perception;
@@ -23,10 +23,6 @@ translates them. Six synchronous MCP tools:
   means no target: in place (原地放下) at the arm's current XY, or at a
   calibrated `place_pose` when one is configured. The gripper keeps holding
   until the bottom (unlike `release`).
-- `jaka_fixed_grasp` — fixed-pose pick-and-place (固定抓取):
-  grasp at the calibrated `fixed_grasp_pose`, set down at the calibrated
-  `fixed_place_pose`. No perception, no arguments; both hovers are
-  z + `travel_offset`.
 - `jaka_pick` — locate a named object with the camera (`detect_scheme`:
   yolo11-obb, open-vocabulary VLM, or `auto` routing yolo-covered names to
   yolo and the rest to the VLM) and grasp it: 2D hand-eye
@@ -69,25 +65,6 @@ sample. The verdict already requires two settled samples
 (`GRASP_VERIFY_TIMEOUT_S`), but a lost-answer cluster can still look like an
 empty close; observe the hand for critical grasps.
 
-## Running the 固定抓取 demo
-
-1. This repo checked out on `demo` (the deploy's local manifest points at
-   `../skill-jaka-grasp-rbnx`, so whatever branch is checked out is what boots).
-2. Lower the grip for the fragile demo object (a raw egg) in the deploy
-   manifest's `jaka_arm` config: `gripper_force: 20` (0-100 scale, applied
-   once at connect — the skill cannot change it per call; verify on the
-   real object, adjust down/up).
-3. Calibrate the two fixed poses (teach the arm there, then
-   `ros2 topic echo /jaka/end_pose --once`, ROS_DOMAIN_ID=0
-   RMW_IMPLEMENTATION=rmw_zenoh_cpp) and set them in the deploy manifest's
-   `skill: - name: jaka` config block:
-   `fixed_grasp_pose` / `fixed_place_pose` (`[x, y, z, rx, ry, rz]`, metres +
-   radians, vertical-down `[π, 0, 0]` typical). Mind reach: each hover is
-   z + `travel_offset` and must stay inside the arm's envelope at that
-   radial.
-4. Rebuild + reboot the deploy (`bash build.sh && bash start.sh`), then
-   `rbnx ask "固定抓取"`.
-
 ## Build
 
 ```bash
@@ -111,7 +88,7 @@ the first tool call. Static checks after `bash start.sh`:
 
 ```bash
 rbnx caps -v                              # jaka [INACTIVE] until first call
-rbnx tools                                # jaka_grab / jaka_release / jaka_home / jaka_place / jaka_fixed_grasp / jaka_pick listed
+rbnx tools                                # jaka_grab / jaka_release / jaka_home / jaka_place / jaka_pick listed
 rbnx contracts -p robonix/skill/jaka
 rbnx describe --provider jaka
 ```

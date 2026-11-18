@@ -125,7 +125,7 @@ class PlacePixelTarget(unittest.TestCase):
         self.assertIn("pixel", msg)
 
     def test_pixel_uses_deploy_calibration(self):
-        # Raw (distorted) pixel of the taught fixed_place point, derived
+        # Raw (distorted) pixel of the taught place point, derived
         # independently of the code under test: invert the homography for
         # the undistorted pixel, then apply the lens distortion with
         # projectPoints (the forward camera model, i.e. the +distortion
